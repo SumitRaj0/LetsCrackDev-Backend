@@ -1,13 +1,33 @@
 import { Router } from 'express'
-import { signup, login, refreshToken, getMe, updateMe, deleteMe } from './auth.controller'
+import {
+  signup,
+  login,
+  refreshToken,
+  getMe,
+  updateMe,
+  deleteMe,
+  forgotPassword,
+  resetPassword,
+} from './auth.controller'
 import { requireAuth, requireAdmin } from './auth.middleware'
+import { authLimiter } from '../../middleware/rateLimiter'
+import { validate } from '../../middleware/validation'
+import {
+  signupSchema,
+  loginSchema,
+  refreshTokenSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+} from './auth.schema'
 
 const router = Router()
 
-// Public auth routes
-router.post('/signup', signup)
-router.post('/login', login)
-router.post('/refresh-token', refreshToken)
+// Public auth routes - with rate limiting + validation to prevent brute force attacks
+router.post('/signup', authLimiter, validate(signupSchema), signup)
+router.post('/login', authLimiter, validate(loginSchema), login)
+router.post('/refresh-token', authLimiter, validate(refreshTokenSchema), refreshToken)
+router.post('/forgot-password', authLimiter, validate(forgotPasswordSchema), forgotPassword)
+router.post('/reset-password', authLimiter, validate(resetPasswordSchema), resetPassword)
 
 // Authenticated user routes
 router.get('/me', requireAuth, getMe)

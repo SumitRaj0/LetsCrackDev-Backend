@@ -11,10 +11,41 @@ import { requestLogger } from './middleware/logger'
 import { generalLimiter } from './middleware/rateLimiter'
 import { logger } from './utils/logger'
 import routes from './routes'
+import { handleWebhook } from './modules/purchases/purchase.controller'
 
 const app = express()
 
 const API_VERSION = process.env.API_VERSION || 'v1'
+
+// Razorpay webhook endpoint - must be before JSON parsing middleware
+// Razorpay webhooks need raw body for signature verification
+app.use(
+  `/api/${API_VERSION}/purchases/webhook`,
+  express.raw({ type: 'application/json' }),
+  (req, res, next) => {
+    // Parse JSON from raw body for Razorpay webhook
+    try {
+      req.body = JSON.parse(req.body.toString())
+    } catch (error) {
+      return next(new Error('Invalid webhook body'))
+    }
+    handleWebhook(req, res, next)
+  }
+)
+
+// Legacy webhook route
+app.use(
+  '/api/purchases/webhook',
+  express.raw({ type: 'application/json' }),
+  (req, res, next) => {
+    try {
+      req.body = JSON.parse(req.body.toString())
+    } catch (error) {
+      return next(new Error('Invalid webhook body'))
+    }
+    handleWebhook(req, res, next)
+  }
+)
 
 // Core middleware
 app.use(express.json({ limit: '10mb' }))

@@ -22,21 +22,27 @@ export const securityMiddleware = [
 
 export const corsMiddleware = (req: Request, res: Response, next: NextFunction): void => {
   const origin = req.headers.origin
+  
+  // Get allowed origins from environment variable or use defaults
+  const envOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || []
   const allowedOrigins = [
+    ...envOrigins,
     process.env.FRONTEND_URL || 'http://localhost:5173',
     'http://localhost:5173',
     'http://localhost:3000',
     'http://127.0.0.1:5173',
   ]
 
-  // In development, allow all localhost origins
+  // In development, allow localhost origins for convenience
   const isDevelopment = process.env.NODE_ENV !== 'production'
   const isLocalhost = origin && (origin.includes('localhost') || origin.includes('127.0.0.1'))
 
-  if (isDevelopment && isLocalhost) {
+  // Only allow origins in the allowed list
+  if (origin && allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin)
-  } else if (origin && allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin)
+  } else if (isDevelopment && isLocalhost) {
+    // In development, allow localhost for easier testing
+    res.setHeader('Access-Control-Allow-Origin', origin || '*')
   }
 
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
