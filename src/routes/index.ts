@@ -12,6 +12,7 @@ import serviceRoutes from '../modules/services'
 import courseRoutes from '../modules/courses'
 import purchaseRoutes from '../modules/purchases'
 import adminRoutes from '../modules/admin'
+import chatbotRoutes from '../modules/chatbot'
 
 const router = Router()
 
@@ -22,7 +23,8 @@ router.get('/', (_req, res) => {
     version: process.env.API_VERSION || 'v1',
     status: 'running',
     timestamp: new Date().toISOString(),
-    message: 'Backend skeleton is ready. Auth module at /auth, User module at /user, Resources module at /resources, Services module at /services, Courses module at /courses.',
+    message:
+      'Backend skeleton is ready. Auth module at /auth, User module at /user, Resources module at /resources, Services module at /services, Courses module at /courses.',
   })
 })
 
@@ -47,5 +49,7 @@ router.use('/purchases', purchaseRoutes)
 // Admin module routes (requires admin authentication)
 router.use('/admin', adminRoutes)
 
-export default router
+// Chatbot module routes (requires authentication)
+router.use('/chatbot', chatbotRoutes)
 
+export default router

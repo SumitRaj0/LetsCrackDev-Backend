@@ -51,3 +51,26 @@ export const apiLimiter = rateLimit({
   skip: () => isTestEnv,
 })
 
+/**
+ * Chatbot rate limiter - per authenticated user
+ * Limits each logged-in user to prevent abuse and protect Gemini API quota
+ *
+ * - Uses user ID as key (not IP address) so each user has their own limit
+ * - Requires authentication (requireAuth middleware must run first)
+ * - Configurable via CHATBOT_RATE_LIMIT_MAX env variable
+ */
+export const chatbotLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: parseInt(process.env.CHATBOT_RATE_LIMIT_MAX || '10', 10), // 10 messages per minute per user
+  message: 'Too many chat requests. Please wait a moment before sending another message.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Use user ID as key instead of IP address
+  keyGenerator: (req) => {
+    const authUser = (req as any).authUser
+    // Use user ID if authenticated, fallback to IP
+    return authUser?.sub || req.ip || 'unknown'
+  },
+  // Skip rate limiting in tests
+  skip: () => isTestEnv,
+})

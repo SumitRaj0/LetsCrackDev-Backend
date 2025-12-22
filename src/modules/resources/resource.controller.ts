@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import { Resource } from './resource.model'
+import { User } from '../auth/user.model'
 import {
   createResourceSchema,
   updateResourceSchema,
@@ -20,7 +21,7 @@ import { sendResponse } from '../../utils/response'
 export const createResource = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   try {
     const authUser = (req as Request & { authUser?: { sub?: string; role?: string } }).authUser
@@ -48,7 +49,7 @@ export const createResource = async (
 
     const populatedResource = await Resource.findById(resource._id).populate(
       'createdBy',
-      'name email'
+      'name email',
     )
 
     sendResponse(
@@ -57,7 +58,7 @@ export const createResource = async (
         resource: populatedResource,
       },
       'Resource created successfully',
-      201
+      201,
     )
   } catch (error) {
     next(error)
@@ -71,7 +72,7 @@ export const createResource = async (
 export const getResources = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   try {
     const result = getResourcesQuerySchema.safeParse(req.query)
@@ -135,7 +136,7 @@ export const getResources = async (
           hasPrevPage: page > 1,
         },
       },
-      'Resources retrieved successfully'
+      'Resources retrieved successfully',
     )
   } catch (error) {
     next(error)
@@ -149,7 +150,7 @@ export const getResources = async (
 export const getResourceById = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   try {
     const { id } = req.params
@@ -169,7 +170,7 @@ export const getResourceById = async (
       {
         resource,
       },
-      'Resource retrieved successfully'
+      'Resource retrieved successfully',
     )
   } catch (error) {
     next(error)
@@ -183,7 +184,7 @@ export const getResourceById = async (
 export const updateResource = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   try {
     const authUser = (req as Request & { authUser?: { sub?: string; role?: string } }).authUser
@@ -224,7 +225,7 @@ export const updateResource = async (
       {
         resource,
       },
-      'Resource updated successfully'
+      'Resource updated successfully',
     )
   } catch (error) {
     next(error)
@@ -238,7 +239,7 @@ export const updateResource = async (
 export const deleteResource = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   try {
     const authUser = (req as Request & { authUser?: { sub?: string; role?: string } }).authUser
@@ -260,11 +261,7 @@ export const deleteResource = async (
     }
 
     // Soft delete
-    const resource = await Resource.findByIdAndUpdate(
-      id,
-      { deletedAt: new Date() },
-      { new: true }
-    )
+    const resource = await Resource.findByIdAndUpdate(id, { deletedAt: new Date() }, { new: true })
 
     if (!resource) {
       throw new NotFoundError('Resource not found')
@@ -276,3 +273,105 @@ export const deleteResource = async (
   }
 }
 
+/**
+ * Bookmark/unbookmark resource (Authenticated users)
+ * POST /api/v1/resources/:id/bookmark
+ */
+export const toggleBookmark = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const authUser = (req as Request & { authUser?: { sub?: string } }).authUser
+    const userId = authUser?.sub
+
+    if (!userId) {
+      throw new UnauthorizedError('Not authenticated')
+    }
+
+    const { id } = req.params
+
+    if (!id) {
+      throw new ValidationError('Resource ID is required')
+    }
+
+    // Check if resource exists
+    const resource = await Resource.findById(id)
+    if (!resource) {
+      throw new NotFoundError('Resource not found')
+    }
+
+    // Get user
+    const user = await User.findById(userId)
+    if (!user) {
+      throw new UnauthorizedError('User not found')
+    }
+
+    // Check if already bookmarked
+    const isBookmarked = user.bookmarkedResources.some((bookmarkId) => bookmarkId.toString() === id)
+
+    if (isBookmarked) {
+      // Remove bookmark
+      user.bookmarkedResources = user.bookmarkedResources.filter(
+        (bookmarkId) => bookmarkId.toString() !== id,
+      )
+      await user.save()
+
+      sendResponse(res, { bookmarked: false }, 'Resource unbookmarked successfully')
+    } else {
+      // Add bookmark
+      user.bookmarkedResources.push(resource._id)
+      await user.save()
+
+      sendResponse(res, { bookmarked: true }, 'Resource bookmarked successfully')
+    }
+  } catch (error) {
+    next(error)
+  }
+}
+
+/**
+ * Get all bookmarked resources (Authenticated users)
+ * GET /api/v1/resources/bookmarks/all
+ */
+export const getBookmarkedResources = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const authUser = (req as Request & { authUser?: { sub?: string } }).authUser
+    const userId = authUser?.sub
+
+    if (!userId) {
+      throw new UnauthorizedError('Not authenticated')
+    }
+
+    // Get user with bookmarked resources
+    const user = await User.findById(userId).populate({
+      path: 'bookmarkedResources',
+      populate: { path: 'createdBy', select: 'name email' },
+    })
+
+    if (!user) {
+      throw new UnauthorizedError('User not found')
+    }
+
+    // Filter out deleted resources
+    const bookmarkedResources = (user.bookmarkedResources as any[]).filter(
+      (resource) => resource && !resource.deletedAt,
+    )
+
+    sendResponse(
+      res,
+      {
+        resources: bookmarkedResources,
+        count: bookmarkedResources.length,
+      },
+      'Bookmarked resources retrieved successfully',
+    )
+  } catch (error) {
+    next(error)
+  }
+}

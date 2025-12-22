@@ -1,11 +1,13 @@
 import { Request, Response, NextFunction } from 'express'
 import { Course } from './course.model'
+import { User } from '../auth/user.model'
 import { createCourseSchema, updateCourseSchema, getCoursesQuerySchema } from './course.schema'
 import {
   ValidationError,
   NotFoundError,
   UnauthorizedError,
   ForbiddenError,
+  ConflictError,
 } from '../../utils/errors'
 import { sendResponse } from '../../utils/response'
 
@@ -16,7 +18,7 @@ import { sendResponse } from '../../utils/response'
 export const createCourse = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   try {
     const authUser = (req as Request & { authUser?: { sub?: string; role?: string } }).authUser
@@ -48,10 +50,7 @@ export const createCourse = async (
       createdBy: userId,
     })
 
-    const populatedCourse = await Course.findById(course._id).populate(
-      'createdBy',
-      'name email'
-    )
+    const populatedCourse = await Course.findById(course._id).populate('createdBy', 'name email')
 
     sendResponse(
       res,
@@ -59,7 +58,7 @@ export const createCourse = async (
         course: populatedCourse,
       },
       'Course created successfully',
-      201
+      201,
     )
   } catch (error) {
     next(error)
@@ -73,7 +72,7 @@ export const createCourse = async (
 export const getCourses = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   try {
     const result = getCoursesQuerySchema.safeParse(req.query)
@@ -146,7 +145,7 @@ export const getCourses = async (
           hasPrevPage: page > 1,
         },
       },
-      'Courses retrieved successfully'
+      'Courses retrieved successfully',
     )
   } catch (error) {
     next(error)
@@ -160,7 +159,7 @@ export const getCourses = async (
 export const getCourseById = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   try {
     const { id } = req.params
@@ -180,7 +179,7 @@ export const getCourseById = async (
       {
         course,
       },
-      'Course retrieved successfully'
+      'Course retrieved successfully',
     )
   } catch (error) {
     next(error)
@@ -194,7 +193,7 @@ export const getCourseById = async (
 export const updateCourse = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   try {
     const authUser = (req as Request & { authUser?: { sub?: string; role?: string } }).authUser
@@ -241,7 +240,7 @@ export const updateCourse = async (
       {
         course,
       },
-      'Course updated successfully'
+      'Course updated successfully',
     )
   } catch (error) {
     next(error)
@@ -255,7 +254,7 @@ export const updateCourse = async (
 export const deleteCourse = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   try {
     const authUser = (req as Request & { authUser?: { sub?: string; role?: string } }).authUser
@@ -277,11 +276,7 @@ export const deleteCourse = async (
     }
 
     // Soft delete
-    const course = await Course.findByIdAndUpdate(
-      id,
-      { deletedAt: new Date() },
-      { new: true }
-    )
+    const course = await Course.findByIdAndUpdate(id, { deletedAt: new Date() }, { new: true })
 
     if (!course) {
       throw new NotFoundError('Course not found')
@@ -293,3 +288,217 @@ export const deleteCourse = async (
   }
 }
 
+/**
+ * Enroll in course (Authenticated users)
+ * POST /api/v1/courses/:id/enroll
+ */
+export const enrollInCourse = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const authUser = (req as Request & { authUser?: { sub?: string } }).authUser
+    const userId = authUser?.sub
+
+    if (!userId) {
+      throw new UnauthorizedError('Not authenticated')
+    }
+
+    const { id } = req.params
+
+    if (!id) {
+      throw new ValidationError('Course ID is required')
+    }
+
+    // Check if course exists
+    const course = await Course.findById(id)
+    if (!course) {
+      throw new NotFoundError('Course not found')
+    }
+
+    // Get user
+    const user = await User.findById(userId)
+    if (!user) {
+      throw new UnauthorizedError('User not found')
+    }
+
+    // Check if already enrolled
+    const isEnrolled = user.enrolledCourses.some(
+      (enrollment) => enrollment.courseId.toString() === id,
+    )
+
+    if (isEnrolled) {
+      throw new ConflictError('You are already enrolled in this course')
+    }
+
+    // Add enrollment
+    user.enrolledCourses.push({
+      courseId: course._id,
+      progress: 0,
+      completedLessons: [],
+      enrolledAt: new Date(),
+    })
+    await user.save()
+
+    sendResponse(
+      res,
+      {
+        enrollment: {
+          courseId: course._id,
+          progress: 0,
+          enrolledAt: new Date(),
+        },
+      },
+      'Successfully enrolled in course',
+      201,
+    )
+  } catch (error) {
+    next(error)
+  }
+}
+
+/**
+ * Get user enrollment for a course (Authenticated users)
+ * GET /api/v1/courses/:id/enrollment
+ */
+export const getCourseEnrollment = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const authUser = (req as Request & { authUser?: { sub?: string } }).authUser
+    const userId = authUser?.sub
+
+    if (!userId) {
+      throw new UnauthorizedError('Not authenticated')
+    }
+
+    const { id } = req.params
+
+    if (!id) {
+      throw new ValidationError('Course ID is required')
+    }
+
+    // Check if course exists
+    const course = await Course.findById(id)
+    if (!course) {
+      throw new NotFoundError('Course not found')
+    }
+
+    // Get user with enrollment
+    const user = await User.findById(userId)
+    if (!user) {
+      throw new UnauthorizedError('User not found')
+    }
+
+    // Find enrollment
+    const enrollment = user.enrolledCourses.find(
+      (enrollment) => enrollment.courseId.toString() === id,
+    )
+
+    if (!enrollment) {
+      // Return empty enrollment if not enrolled
+      sendResponse(
+        res,
+        {
+          enrollment: null,
+          isEnrolled: false,
+        },
+        'User is not enrolled in this course',
+      )
+      return
+    }
+
+    sendResponse(
+      res,
+      {
+        enrollment: {
+          courseId: enrollment.courseId,
+          progress: enrollment.progress,
+          completedLessons: enrollment.completedLessons,
+          enrolledAt: enrollment.enrolledAt,
+        },
+        isEnrolled: true,
+      },
+      'Enrollment data retrieved successfully',
+    )
+  } catch (error) {
+    next(error)
+  }
+}
+
+/**
+ * Update course progress (Authenticated users)
+ * PATCH /api/v1/courses/:id/progress
+ */
+export const updateCourseProgress = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const authUser = (req as Request & { authUser?: { sub?: string } }).authUser
+    const userId = authUser?.sub
+
+    if (!userId) {
+      throw new UnauthorizedError('Not authenticated')
+    }
+
+    const { id } = req.params
+    const { progress, completedLessons } = req.body
+
+    if (!id) {
+      throw new ValidationError('Course ID is required')
+    }
+
+    // Validate progress (0-100)
+    if (progress !== undefined && (progress < 0 || progress > 100)) {
+      throw new ValidationError('Progress must be between 0 and 100')
+    }
+
+    // Check if course exists
+    const course = await Course.findById(id)
+    if (!course) {
+      throw new NotFoundError('Course not found')
+    }
+
+    // Get user
+    const user = await User.findById(userId)
+    if (!user) {
+      throw new UnauthorizedError('User not found')
+    }
+
+    // Find enrollment
+    const enrollmentIndex = user.enrolledCourses.findIndex(
+      (enrollment) => enrollment.courseId.toString() === id,
+    )
+
+    if (enrollmentIndex === -1) {
+      throw new NotFoundError('You are not enrolled in this course')
+    }
+
+    // Update progress
+    if (progress !== undefined) {
+      user.enrolledCourses[enrollmentIndex].progress = Math.min(100, Math.max(0, progress))
+    }
+
+    // Update completed lessons if provided
+    if (completedLessons && Array.isArray(completedLessons)) {
+      user.enrolledCourses[enrollmentIndex].completedLessons = completedLessons
+    }
+
+    await user.save()
+
+    sendResponse(
+      res,
+      {
+        enrollment: user.enrolledCourses[enrollmentIndex],
+      },
+      'Course progress updated successfully',
+    )
+  } catch (error) {
+    next(error)
+  }
+}

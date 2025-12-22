@@ -66,6 +66,7 @@ FRONTEND_URL=http://localhost:5173
 ```
 
 Required variables:
+
 - `DATABASE_URL` - PostgreSQL connection string
 - `AUTH0_DOMAIN` - Your Auth0 domain
 - `AUTH0_AUDIENCE` - Your Auth0 API audience
@@ -101,48 +102,82 @@ The server will start on `http://localhost:3001`
 ## API Endpoints
 
 ### Base URL
+
 - Development: `http://localhost:3001/api/v1`
 - Production: `https://your-domain.com/api/v1`
 
 ### Modules
 
-#### Users (`/users`)
-- `GET /me` - Get current user
-- `GET /me/stats` - Get user statistics
-- `PATCH /me` - Update current user
-- `GET /:id` - Get user by ID
+#### Authentication (`/auth`)
+
+- `POST /signup` - Register new user
+- `POST /login` - Login user
+- `POST /refresh-token` - Refresh access token
+- `POST /forgot-password` - Request password reset
+- `POST /reset-password` - Reset password with token
+- `GET /me` - Get current user profile
+- `PUT /me` - Update current user profile
+- `PATCH /me` - Update current user profile
+- `DELETE /me` - Delete current user account
+
+#### Users (`/user`)
+
+- `GET /profile` - Get user profile
+- `PUT /profile` - Update user profile
+- `PATCH /profile` - Update user profile
+- `PUT /change-password` - Change password
+- `DELETE /account` - Delete account (soft delete)
 
 #### Courses (`/courses`)
+
 - `GET /` - Get all courses (with pagination, filters)
 - `GET /:id` - Get course by ID
 - `POST /` - Create course (Admin only)
 - `PATCH /:id` - Update course (Admin only)
+- `PUT /:id` - Update course (Admin only)
 - `DELETE /:id` - Delete course (Admin only)
-- `POST /:id/enroll` - Enroll in course
-- `PATCH /:id/progress` - Update course progress
+- `POST /:id/enroll` - Enroll in course (Authenticated)
+- `PATCH /:id/progress` - Update course progress (Authenticated)
 
 #### Resources (`/resources`)
+
 - `GET /` - Get all resources (with pagination, filters)
 - `GET /:id` - Get resource by ID
 - `POST /` - Create resource (Admin only)
 - `PATCH /:id` - Update resource (Admin only)
+- `PUT /:id` - Update resource (Admin only)
 - `DELETE /:id` - Delete resource (Admin only)
-- `POST /:id/bookmark` - Bookmark/unbookmark resource
-- `GET /bookmarks/all` - Get all bookmarked resources
+- `POST /:id/bookmark` - Bookmark/unbookmark resource (Authenticated)
+- `GET /bookmarks/all` - Get all bookmarked resources (Authenticated)
 
-#### Premium (`/premium`)
-- `GET /services` - Get all premium services
-- `GET /services/:id` - Get premium service by ID
-- `POST /orders` - Create order
-- `GET /orders` - Get user orders
-- `PATCH /orders/:id/status` - Update order status (Admin only)
+#### Services (`/services`)
+
+- `GET /` - Get all premium services (with pagination, filters)
+- `GET /:idOrSlug` - Get service by ID or slug
+- `POST /` - Create service (Admin only)
+- `PATCH /:id` - Update service (Admin only)
+- `PUT /:id` - Update service (Admin only)
+- `DELETE /:id` - Delete service (Admin only)
+
+#### Purchases (`/purchases`)
+
+- `POST /checkout` - Create checkout session (Authenticated)
+- `POST /verify` - Verify payment (Authenticated)
+- `GET /status/:orderId` - Get purchase status by order ID (Authenticated)
+- `GET /` - Get user's purchase history (Authenticated)
+- `GET /:id` - Get purchase by ID (Authenticated)
+- `POST /webhook` - Razorpay webhook endpoint (handled separately)
 
 #### Chatbot (`/chatbot`)
-- `POST /chat` - Send message to AI chatbot
+
+- `POST /chat` - Send message to AI chatbot (Authenticated, rate limited)
 
 #### Admin (`/admin`)
-- `GET /stats` - Get dashboard statistics
-- `GET /users/stats` - Get user statistics
+
+- `GET /analytics` - Get dashboard statistics (Admin only)
+- `GET /analytics/monthly` - Get monthly statistics (Admin only)
+- `GET /analytics/sales` - Get sales data (Admin only)
+- `GET /analytics/users` - Get user statistics (Admin only)
 
 ## Authentication
 
@@ -242,4 +277,3 @@ backend/
 - Input validation
 - SQL injection protection (Prisma)
 - JWT token verification
-

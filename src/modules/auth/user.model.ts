@@ -14,6 +14,13 @@ export interface UserDocument extends Document {
   razorpayCustomerId?: string
   passwordResetToken?: string
   passwordResetExpires?: Date
+  bookmarkedResources: mongoose.Types.ObjectId[]
+  enrolledCourses: Array<{
+    courseId: mongoose.Types.ObjectId
+    progress: number // 0-100
+    completedLessons: mongoose.Types.ObjectId[]
+    enrolledAt: Date
+  }>
   deletedAt?: Date
   createdAt: Date
   updatedAt: Date
@@ -67,12 +74,43 @@ const UserSchema = new Schema<UserDocument>(
     passwordResetExpires: {
       type: Date,
     },
+    bookmarkedResources: {
+      type: [Schema.Types.ObjectId],
+      ref: 'Resource',
+      default: [],
+    },
+    enrolledCourses: {
+      type: [
+        {
+          courseId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Course',
+            required: true,
+          },
+          progress: {
+            type: Number,
+            default: 0,
+            min: 0,
+            max: 100,
+          },
+          completedLessons: {
+            type: [Schema.Types.ObjectId],
+            default: [],
+          },
+          enrolledAt: {
+            type: Date,
+            default: Date.now,
+          },
+        },
+      ],
+      default: [],
+    },
     deletedAt: {
       type: Date,
       default: null,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 )
 
 // Soft delete: Exclude deleted users from queries by default
@@ -86,5 +124,3 @@ UserSchema.pre(/^find/, function (next) {
 })
 
 export const User = mongoose.model<UserDocument>('User', UserSchema)
-
-

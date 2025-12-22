@@ -36,10 +36,20 @@ export const validate = (schema: ZodTypeAny, options: ValidationOptions = {}) =>
       next()
     } catch (err) {
       const zodError = err as ZodError
+      const issues = zodError.issues || []
       const message =
-        zodError.issues && zodError.issues.length > 0
-          ? zodError.issues[0].message
+        issues.length > 0
+          ? issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(', ')
           : 'Invalid request data'
+
+      // Log validation errors for debugging
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Validation error:', {
+          path: req.path,
+          body: req.body,
+          issues: issues.map((i) => ({ path: i.path, message: i.message, code: i.code })),
+        })
+      }
 
       next(new ValidationError(message))
     }
