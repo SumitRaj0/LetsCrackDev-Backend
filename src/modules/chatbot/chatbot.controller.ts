@@ -64,9 +64,7 @@ export const sendChatMessage = async (
 
     const model = genAI.getGenerativeModel({
       model: modelId,
-      systemInstruction: {
-        parts: [{ text: SYSTEM_PROMPT }],
-      },
+      systemInstruction: SYSTEM_PROMPT,
       generationConfig: {
         temperature: 0.7,
         maxOutputTokens: 2048,
