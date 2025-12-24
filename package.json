@@ -18,7 +18,10 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "test:auth": "jest src/__tests__/modules/auth"
+    "test:auth": "jest src/__tests__/modules/auth",
+    "test:integration": "jest src/__tests__/integration",
+    "test:integration:watch": "jest --watch src/__tests__/integration",
+    "test:integration:coverage": "jest --coverage src/__tests__/integration"
   },
   "keywords": [
     "devhub",
@@ -39,6 +42,7 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.7.0",
     "morgan": "^1.10.0",
+    "nodemailer": "^6.10.1",
     "razorpay": "^2.9.6",
     "zod": "^3.25.76"
   },
@@ -51,6 +55,7 @@
     "@types/jsonwebtoken": "^9.0.7",
     "@types/morgan": "^1.9.9",
     "@types/node": "^20.14.12",
+    "@types/nodemailer": "^6.4.21",
     "@types/supertest": "^6.0.2",
     "@typescript-eslint/eslint-plugin": "^7.13.0",
     "@typescript-eslint/parser": "^7.13.0",

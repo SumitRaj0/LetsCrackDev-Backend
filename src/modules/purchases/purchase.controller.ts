@@ -12,7 +12,12 @@ import { Service } from '../services/service.model'
 import { Course } from '../courses/course.model'
 import { User } from '../auth/user.model'
 import { createCheckoutSchema, getPurchasesQuerySchema } from './purchase.schema'
-import { ValidationError, NotFoundError, UnauthorizedError, BadRequestError } from '../../utils/errors'
+import {
+  ValidationError,
+  NotFoundError,
+  UnauthorizedError,
+  BadRequestError,
+} from '../../utils/errors'
 import { sendResponse } from '../../utils/response'
 import { logger } from '../../utils/logger'
 
@@ -23,7 +28,7 @@ import { logger } from '../../utils/logger'
 export const createCheckoutSession = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   try {
     const authUser = (req as Request & { authUser?: { sub?: string; email?: string } }).authUser
@@ -40,7 +45,7 @@ export const createCheckoutSession = async (
       throw new ValidationError(message)
     }
 
-    const { purchaseType, serviceId, courseId, successUrl, cancelUrl } = result.data
+    const { purchaseType, serviceId, courseId, successUrl, cancelUrl, couponCode } = result.data
 
     // Validate that either serviceId or courseId is provided based on purchaseType
     if (purchaseType === 'service' && !serviceId) {
@@ -83,25 +88,55 @@ export const createCheckoutSession = async (
       throw new NotFoundError('User not found')
     }
 
+    // Validate and apply coupon if provided
+    let finalAmount = amount
+    let discountAmount = 0
+    let appliedCouponCode: string | undefined
+
+    if (couponCode) {
+      const { validateCoupon } = await import('../coupons/coupon.service')
+      const itemId = purchaseType === 'service' ? serviceId! : courseId!
+
+      const couponResult = await validateCoupon({
+        code: couponCode,
+        purchaseType,
+        itemId,
+        amount,
+        userId,
+      })
+
+      if (!couponResult.valid) {
+        throw new ValidationError(couponResult.message)
+      }
+
+      discountAmount = couponResult.discount
+      finalAmount = couponResult.finalAmount
+      appliedCouponCode = couponResult.coupon?.code
+    }
+
     // Create purchase record (pending)
     const purchase = await Purchase.create({
       user: userId,
       purchaseType,
       serviceId: purchaseType === 'service' ? serviceId : undefined,
       courseId: purchaseType === 'course' ? courseId : undefined,
-      amount,
+      amount: finalAmount, // Final amount after discount
+      originalAmount: amount, // Original amount before discount
       currency: RAZORPAY_CONFIG.currency,
       status: 'pending',
+      couponCode: appliedCouponCode,
+      discountAmount: discountAmount > 0 ? discountAmount : undefined,
       metadata: {
         itemName,
         itemDescription,
         userId: userId,
+        couponCode: appliedCouponCode,
       },
     })
 
-    // Create Razorpay order
+    // Create Razorpay order (use final amount after discount)
     const orderOptions = {
-      amount: Math.round(amount * 100), // Convert to paise (smallest currency unit for INR)
+      amount: Math.round(finalAmount * 100), // Convert to paise (smallest currency unit for INR)
       currency: RAZORPAY_CONFIG.currency,
       receipt: `purchase_${purchase._id.toString()}`,
       notes: {
@@ -152,7 +187,7 @@ export const createCheckoutSession = async (
         cancelUrl: cancelUrl || RAZORPAY_CONFIG.defaultCancelUrl,
       },
       'Order created successfully',
-      201
+      201,
     )
   } catch (error) {
     next(error)
@@ -166,7 +201,7 @@ export const createCheckoutSession = async (
 export const verifyPayment = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   try {
     const authUser = (req as Request & { authUser?: { sub?: string } }).authUser
@@ -216,6 +251,16 @@ export const verifyPayment = async (
     purchase.completedAt = new Date()
     await purchase.save()
 
+    // Increment coupon usage if coupon was applied
+    if (purchase.couponCode) {
+      const { incrementCouponUsage } = await import('../coupons/coupon.service')
+      const { Coupon } = await import('../coupons/coupon.model')
+      const coupon = await Coupon.findOne({ code: purchase.couponCode })
+      if (coupon) {
+        await incrementCouponUsage(coupon._id.toString())
+      }
+    }
+
     // Update user premium status if needed
     const user = await User.findById(userId)
     if (user) {
@@ -236,7 +281,7 @@ export const verifyPayment = async (
         purchase: purchase,
         verified: true,
       },
-      'Payment verified successfully'
+      'Payment verified successfully',
     )
   } catch (error) {
     next(error)
@@ -250,7 +295,7 @@ export const verifyPayment = async (
 export const getPurchaseStatus = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   try {
     const authUser = (req as Request & { authUser?: { sub?: string } }).authUser
@@ -283,7 +328,7 @@ export const getPurchaseStatus = async (
         amount: purchase.amount,
         currency: purchase.currency,
       },
-      'Purchase status retrieved successfully'
+      'Purchase status retrieved successfully',
     )
   } catch (error) {
     next(error)
@@ -297,7 +342,7 @@ export const getPurchaseStatus = async (
 export const handleWebhook = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   const webhookSignature = req.headers['x-razorpay-signature'] as string
 
@@ -314,10 +359,7 @@ export const handleWebhook = async (
     logger.warn('RAZORPAY_WEBHOOK_SECRET not set, skipping signature verification')
   } else {
     // Verify webhook signature
-    const expectedSignature = crypto
-      .createHmac('sha256', secret)
-      .update(webhookBody)
-      .digest('hex')
+    const expectedSignature = crypto.createHmac('sha256', secret).update(webhookBody).digest('hex')
 
     if (webhookSignature !== expectedSignature) {
       logger.error('Webhook signature verification failed')
@@ -412,7 +454,7 @@ export const handleWebhook = async (
 export const getPurchases = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   try {
     const authUser = (req as Request & { authUser?: { sub?: string } }).authUser
@@ -469,7 +511,7 @@ export const getPurchases = async (
           hasPrevPage: page > 1,
         },
       },
-      'Purchases retrieved successfully'
+      'Purchases retrieved successfully',
     )
   } catch (error) {
     next(error)
@@ -483,7 +525,7 @@ export const getPurchases = async (
 export const getPurchaseById = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   try {
     const authUser = (req as Request & { authUser?: { sub?: string } }).authUser
@@ -515,7 +557,7 @@ export const getPurchaseById = async (
       {
         purchase,
       },
-      'Purchase retrieved successfully'
+      'Purchase retrieved successfully',
     )
   } catch (error) {
     next(error)

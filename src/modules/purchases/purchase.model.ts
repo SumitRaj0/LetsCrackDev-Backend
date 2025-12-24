@@ -20,6 +20,9 @@ export interface PurchaseDocument extends Document {
   razorpayPaymentId?: string
   razorpaySignature?: string
   razorpayCustomerId?: string
+  couponCode?: string
+  discountAmount?: number
+  originalAmount: number
   metadata?: Record<string, string>
   completedAt?: Date
   refundedAt?: Date
@@ -53,6 +56,20 @@ const PurchaseSchema = new Schema<PurchaseDocument>(
     amount: {
       type: Number,
       required: true,
+      min: 0,
+    },
+    originalAmount: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+    couponCode: {
+      type: String,
+      uppercase: true,
+      trim: true,
+    },
+    discountAmount: {
+      type: Number,
       min: 0,
     },
     currency: {
@@ -94,7 +111,7 @@ const PurchaseSchema = new Schema<PurchaseDocument>(
       type: Date,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 )
 
 // Indexes for common queries
@@ -103,4 +120,3 @@ PurchaseSchema.index({ user: 1, purchaseType: 1 })
 PurchaseSchema.index({ createdAt: -1 })
 
 export const Purchase = mongoose.model<PurchaseDocument>('Purchase', PurchaseSchema)
-

@@ -14,6 +14,7 @@ export const createCheckoutSchema = z.object({
   courseId: z.string().optional(),
   successUrl: z.string().url().optional(),
   cancelUrl: z.string().url().optional(),
+  couponCode: z.string().optional(),
 })
 
 /**
@@ -31,4 +32,3 @@ export const getPurchasesQuerySchema = z.object({
  */
 export type CreateCheckoutInput = z.infer<typeof createCheckoutSchema>
 export type GetPurchasesQueryInput = z.infer<typeof getPurchasesQuerySchema>
-

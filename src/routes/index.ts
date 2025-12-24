@@ -13,6 +13,8 @@ import courseRoutes from '../modules/courses'
 import purchaseRoutes from '../modules/purchases'
 import adminRoutes from '../modules/admin'
 import chatbotRoutes from '../modules/chatbot'
+import contactRoutes from '../modules/contact'
+import couponRoutes from '../modules/coupons'
 
 const router = Router()
 
@@ -51,5 +53,11 @@ router.use('/admin', adminRoutes)
 
 // Chatbot module routes (requires authentication)
 router.use('/chatbot', chatbotRoutes)
+
+// Contact module routes (public)
+router.use('/contact', contactRoutes)
+
+// Coupon module routes (public)
+router.use('/coupons', couponRoutes)
 
 export default router
