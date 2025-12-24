@@ -42,21 +42,13 @@ function generateTokens(payload: { sub: string; role: string; email?: string }) 
     expiresIn: ACCESS_TOKEN_EXPIRES_IN,
   }
 
-  const accessToken = jwt.sign(
-    payload,
-    getAccessTokenSecret(),
-    accessTokenOptions
-  )
+  const accessToken = jwt.sign(payload, getAccessTokenSecret(), accessTokenOptions)
 
   const refreshTokenOptions: SignOptions = {
     expiresIn: REFRESH_TOKEN_EXPIRES_IN,
   }
 
-  const refreshToken = jwt.sign(
-    payload,
-    getRefreshTokenSecret(),
-    refreshTokenOptions
-  )
+  const refreshToken = jwt.sign(payload, getRefreshTokenSecret(), refreshTokenOptions)
 
   return { accessToken, refreshToken }
 }
@@ -87,20 +79,29 @@ export const signup = async (req: Request, res: Response, next: NextFunction): P
         role: 'user',
       })
 
-      const tokens = generateTokens({ sub: user._id.toString(), role: user.role, email: user.email })
+      const tokens = generateTokens({
+        sub: user._id.toString(),
+        role: user.role,
+        email: user.email,
+      })
 
-      sendResponse(res, {
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          avatar: user.avatar,
-          role: user.role,
-          phone: user.phone,
-          createdAt: user.createdAt,
+      sendResponse(
+        res,
+        {
+          user: {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            avatar: user.avatar,
+            role: user.role,
+            phone: user.phone,
+            createdAt: user.createdAt,
+          },
+          ...tokens,
         },
-        ...tokens,
-      }, 'Signup successful', 201)
+        'Signup successful',
+        201,
+      )
     } catch (createError: any) {
       // Handle MongoDB duplicate key error (E11000)
       // MongoDB duplicate key errors have code 11000
@@ -136,24 +137,32 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
 
     const tokens = generateTokens({ sub: user._id.toString(), role: user.role, email: user.email })
 
-    sendResponse(res, {
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        role: user.role,
-        phone: user.phone,
-        createdAt: user.createdAt,
+    sendResponse(
+      res,
+      {
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          avatar: user.avatar,
+          role: user.role,
+          phone: user.phone,
+          createdAt: user.createdAt,
+        },
+        ...tokens,
       },
-      ...tokens,
-    }, 'Login successful')
+      'Login successful',
+    )
   } catch (error) {
     next(error)
   }
 }
 
-export const refreshToken = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const refreshToken = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
   try {
     const result = refreshTokenSchema.safeParse(req.body)
     if (!result.success) {
@@ -199,17 +208,21 @@ export const getMe = async (req: Request, res: Response, next: NextFunction): Pr
       throw new UnauthorizedError('User not found')
     }
 
-    sendResponse(res, {
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        role: user.role,
-        phone: user.phone,
-        createdAt: user.createdAt,
+    sendResponse(
+      res,
+      {
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          avatar: user.avatar,
+          role: user.role,
+          phone: user.phone,
+          createdAt: user.createdAt,
+        },
       },
-    }, 'User retrieved')
+      'User retrieved',
+    )
   } catch (error) {
     next(error)
   }
@@ -257,17 +270,21 @@ export const updateMe = async (req: Request, res: Response, next: NextFunction):
       throw new UnauthorizedError('User not found')
     }
 
-    sendResponse(res, {
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-        role: user.role,
-        phone: user.phone,
-        createdAt: user.createdAt,
+    sendResponse(
+      res,
+      {
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          avatar: user.avatar,
+          role: user.role,
+          phone: user.phone,
+          createdAt: user.createdAt,
+        },
       },
-    }, 'Profile updated')
+      'Profile updated',
+    )
   } catch (error) {
     next(error)
   }
@@ -290,7 +307,11 @@ export const deleteMe = async (req: Request, res: Response, next: NextFunction):
   }
 }
 
-export const forgotPassword = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const forgotPassword = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
   try {
     const result = forgotPasswordSchema.safeParse(req.body)
     if (!result.success) {
@@ -301,18 +322,22 @@ export const forgotPassword = async (req: Request, res: Response, next: NextFunc
     const { email } = result.data
 
     const user = await User.findOne({ email })
-    
+
     // Don't reveal if email exists (security best practice)
     // Always return success message
     if (!user) {
-      sendResponse(res, { success: true }, 'If an account with that email exists, a password reset link has been sent.')
+      sendResponse(
+        res,
+        { success: true },
+        'If an account with that email exists, a password reset link has been sent.',
+      )
       return
     }
 
     // Generate reset token
     const resetToken = crypto.randomBytes(32).toString('hex')
     const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex')
-    
+
     // Set token expiration (1 hour)
     const resetExpires = new Date()
     resetExpires.setHours(resetExpires.getHours() + 1)
@@ -327,24 +352,74 @@ export const forgotPassword = async (req: Request, res: Response, next: NextFunc
 
     // Log reset URL in non-production environments for easier debugging
     if (process.env.NODE_ENV !== 'production') {
-      logger.debug('Password reset link generated', { email: user.email, resetUrl })
+      logger.info('Password reset link generated', { email: user.email, resetUrl })
+      console.log('\n🔗 Password Reset Link (Development Mode):')
+      console.log(`   ${resetUrl}\n`)
     }
 
     // Send password reset email (real provider can be wired into sendEmail)
-    await sendEmail({
-      to: user.email,
-      subject: 'Password Reset Request',
-      html: `Click here to reset your password: <a href="${resetUrl}">${resetUrl}</a>`,
-      text: `Click here to reset your password: ${resetUrl}`,
-    })
+    let emailSent = false
+    try {
+      await sendEmail({
+        to: user.email,
+        subject: 'Password Reset Request',
+        html: `Click here to reset your password: <a href="${resetUrl}">${resetUrl}</a>`,
+        text: `Click here to reset your password: ${resetUrl}`,
+      })
+      emailSent = true
+      logger.info('Password reset email sent successfully', { email: user.email })
+    } catch (emailError: any) {
+      // Log the error with full details
+      logger.error('Failed to send password reset email', {
+        error: emailError.message,
+        email: user.email,
+        errorCode: emailError.code,
+        errorResponse: emailError.response,
+      })
 
-    sendResponse(res, { success: true }, 'If an account with that email exists, a password reset link has been sent.')
+      // In development or if email fails, return reset URL in response as fallback
+      // This allows users to still reset their password even if email fails
+      const isDevelopment = process.env.NODE_ENV !== 'production'
+      if (isDevelopment || !emailSent) {
+        logger.warn('Email sending failed, but reset link is available in response', {
+          error: emailError.message,
+          resetUrlProvided: true,
+        })
+        sendResponse(
+          res,
+          {
+            success: true,
+            resetUrl: resetUrl, // Always include reset URL if email fails
+            emailSent: false,
+            error: emailError.message,
+          },
+          'Password reset link generated. Email sending failed - use the reset URL provided in the response.',
+        )
+        return
+      }
+      // In production, if email fails, still throw error but log it
+      throw emailError
+    }
+
+    sendResponse(
+      res,
+      {
+        success: true,
+        resetUrl: process.env.NODE_ENV !== 'production' ? resetUrl : undefined,
+        emailSent: true,
+      },
+      'If an account with that email exists, a password reset link has been sent.',
+    )
   } catch (error) {
     next(error)
   }
 }
 
-export const resetPassword = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const resetPassword = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
   try {
     const result = resetPasswordSchema.safeParse(req.body)
     if (!result.success) {
@@ -378,5 +453,3 @@ export const resetPassword = async (req: Request, res: Response, next: NextFunct
     next(error)
   }
 }
-
-

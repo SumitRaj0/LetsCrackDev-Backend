@@ -42,12 +42,20 @@ export const sendEmail = async ({ to, subject, html, text }: SendEmailOptions): 
     return
   }
 
-  // In development, log but don't send (unless GMAIL_APP_PASSWORD is set)
-  if (env === 'development' && !process.env.GMAIL_APP_PASSWORD) {
-    logger.info('Email (mock) queued', { to, subject })
-    logger.debug('Email (mock) content', { to, subject, html, text })
-    logger.info('Set GMAIL_APP_PASSWORD in .env to enable real email sending')
-    return
+  // Check if GMAIL_APP_PASSWORD is set - if not, we can't send emails
+  if (!process.env.GMAIL_APP_PASSWORD) {
+    if (env === 'development') {
+      // In development, log but don't throw error
+      logger.info('Email (mock) queued', { to, subject })
+      logger.debug('Email (mock) content', { to, subject, html, text })
+      logger.warn('Set GMAIL_APP_PASSWORD in .env to enable real email sending')
+      return
+    } else {
+      // In production, throw error if email password is not configured
+      const errorMsg = 'GMAIL_APP_PASSWORD is not configured. Cannot send email in production.'
+      logger.error(errorMsg, { to, subject, env })
+      throw new Error(errorMsg)
+    }
   }
 
   try {
@@ -63,7 +71,14 @@ export const sendEmail = async ({ to, subject, html, text }: SendEmailOptions): 
 
     logger.info('Email sent successfully', { to, subject })
   } catch (error: any) {
-    logger.error('Failed to send email', { error: error.message, to, subject })
+    logger.error('Failed to send email', {
+      error: error.message,
+      to,
+      subject,
+      errorCode: error.code,
+      errorResponse: error.response,
+      stack: error.stack,
+    })
     throw new Error(`Failed to send email: ${error.message}`)
   }
 }

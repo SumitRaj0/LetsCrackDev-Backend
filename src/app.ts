@@ -15,6 +15,10 @@ import { handleWebhook } from './modules/purchases/purchase.controller'
 
 const app = express()
 
+// Trust proxy - required for rate limiting behind reverse proxy (Render, etc.)
+// This allows express-rate-limit to correctly identify client IPs
+app.set('trust proxy', true)
+
 const API_VERSION = process.env.API_VERSION || 'v1'
 
 // Razorpay webhook endpoint - must be before JSON parsing middleware
@@ -30,22 +34,18 @@ app.use(
       return next(new Error('Invalid webhook body'))
     }
     handleWebhook(req, res, next)
-  }
+  },
 )
 
 // Legacy webhook route
-app.use(
-  '/api/purchases/webhook',
-  express.raw({ type: 'application/json' }),
-  (req, res, next) => {
-    try {
-      req.body = JSON.parse(req.body.toString())
-    } catch (error) {
-      return next(new Error('Invalid webhook body'))
-    }
-    handleWebhook(req, res, next)
+app.use('/api/purchases/webhook', express.raw({ type: 'application/json' }), (req, res, next) => {
+  try {
+    req.body = JSON.parse(req.body.toString())
+  } catch (error) {
+    return next(new Error('Invalid webhook body'))
   }
-)
+  handleWebhook(req, res, next)
+})
 
 // Core middleware
 app.use(express.json({ limit: '10mb' }))
@@ -107,5 +107,3 @@ app.use(notFoundHandler)
 app.use(errorHandler)
 
 export default app
-
-
