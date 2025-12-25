@@ -359,7 +359,6 @@ export const forgotPassword = async (
 
     // Send password reset email (real provider can be wired into sendEmail)
     let emailSent = false
-    let emailError: Error | null = null
     try {
       await sendEmail({
         to: user.email,
@@ -369,31 +368,21 @@ export const forgotPassword = async (
       })
       emailSent = true
       logger.info('Password reset email sent successfully', { email: user.email })
-    } catch (err: unknown) {
+    } catch (emailError: any) {
       // Log the error with full details
-      emailError = err instanceof Error ? err : new Error(String(err))
-      const errorCode = err && typeof err === 'object' && 'code' in err ? err.code : undefined
-      const errorResponse =
-        err && typeof err === 'object' && 'response' in err ? err.response : undefined
-
       logger.error('Failed to send password reset email', {
         error: emailError.message,
         email: user.email,
-        errorCode,
-        errorResponse,
+        errorCode: emailError.code,
+        errorResponse: emailError.response,
       })
-    }
-
-    // Check if email was actually sent (handles case where sendEmail returns without throwing)
-    if (!emailSent) {
-      const isDevelopment = process.env.NODE_ENV !== 'production'
-      const errorMessage = emailError?.message || 'GMAIL_APP_PASSWORD is not configured'
 
       // In development or if email fails, return reset URL in response as fallback
       // This allows users to still reset their password even if email fails
-      if (isDevelopment) {
+      const isDevelopment = process.env.NODE_ENV !== 'production'
+      if (isDevelopment || !emailSent) {
         logger.warn('Email sending failed, but reset link is available in response', {
-          error: errorMessage,
+          error: emailError.message,
           resetUrlProvided: true,
         })
         sendResponse(
@@ -402,19 +391,14 @@ export const forgotPassword = async (
             success: true,
             resetUrl: resetUrl, // Always include reset URL if email fails
             emailSent: false,
-            error: errorMessage,
+            error: emailError.message,
           },
           'Password reset link generated. Email sending failed - use the reset URL provided in the response.',
         )
         return
-      } else {
-        // In production, if email fails, throw error
-        if (emailError) {
-          throw emailError
-        } else {
-          throw new Error('GMAIL_APP_PASSWORD is not configured. Cannot send email in production.')
-        }
       }
+      // In production, if email fails, still throw error but log it
+      throw emailError
     }
 
     sendResponse(

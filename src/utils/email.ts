@@ -17,21 +17,13 @@ export interface ContactEmailOptions {
 
 // Create reusable transporter
 const createTransporter = () => {
-  // Gmail SMTP configuration with timeout settings
+  // Gmail SMTP configuration
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
       user: process.env.GMAIL_USER || 'letscrackdev@gmail.com',
       pass: process.env.GMAIL_APP_PASSWORD, // Use App Password, not regular password
     },
-    // Connection timeout settings to prevent hanging
-    connectionTimeout: 10000, // 10 seconds to establish connection
-    socketTimeout: 10000, // 10 seconds for socket operations
-    greetingTimeout: 10000, // 10 seconds for SMTP greeting
-    // Pool connections for better performance
-    pool: true,
-    maxConnections: 1,
-    maxMessages: 3,
   })
 
   return transporter
@@ -69,27 +61,7 @@ export const sendEmail = async ({ to, subject, html, text }: SendEmailOptions): 
   try {
     const transporter = createTransporter()
 
-    // Verify connection before sending (with timeout)
-    try {
-      await Promise.race([
-        transporter.verify(),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Connection verification timeout')), 10000),
-        ),
-      ])
-      logger.debug('SMTP connection verified', { to, subject })
-    } catch (verifyError: unknown) {
-      const errorMessage = verifyError instanceof Error ? verifyError.message : 'Unknown error'
-      logger.warn('SMTP verification failed, but attempting to send anyway', {
-        error: errorMessage,
-        to,
-        subject,
-      })
-      // Continue anyway - sometimes verify fails but sendMail works
-    }
-
-    // Send email with timeout protection
-    const sendPromise = transporter.sendMail({
+    await transporter.sendMail({
       from: `"LetsCrackDev" <${process.env.GMAIL_USER || 'letscrackdev@gmail.com'}>`,
       to,
       subject,
@@ -97,31 +69,17 @@ export const sendEmail = async ({ to, subject, html, text }: SendEmailOptions): 
       text: text || html,
     })
 
-    // Add overall timeout for sendMail operation (30 seconds)
-    await Promise.race([
-      sendPromise,
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Email sending timeout after 30 seconds')), 30000),
-      ),
-    ])
-
     logger.info('Email sent successfully', { to, subject })
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-    const errorCode = error && typeof error === 'object' && 'code' in error ? error.code : undefined
-    const errorResponse =
-      error && typeof error === 'object' && 'response' in error ? error.response : undefined
-    const errorStack = error instanceof Error ? error.stack : undefined
-
+  } catch (error: any) {
     logger.error('Failed to send email', {
-      error: errorMessage,
+      error: error.message,
       to,
       subject,
-      errorCode,
-      errorResponse,
-      stack: errorStack,
+      errorCode: error.code,
+      errorResponse: error.response,
+      stack: error.stack,
     })
-    throw new Error(`Failed to send email: ${errorMessage}`)
+    throw new Error(`Failed to send email: ${error.message}`)
   }
 }
 

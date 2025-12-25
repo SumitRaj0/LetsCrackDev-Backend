@@ -15,7 +15,6 @@
     "prepare": "husky",
     "make-admin": "ts-node src/scripts/makeAdmin.ts",
     "list-users": "ts-node src/scripts/listUsers.ts",
-    "reset-password": "ts-node src/scripts/resetPassword.ts",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
