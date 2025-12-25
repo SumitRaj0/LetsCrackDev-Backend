@@ -13,9 +13,6 @@ import {
   createTestCourse,
   authenticatedRequest,
 } from './testHelpers'
-import { User } from '../../modules/auth/user.model'
-import { Resource } from '../../modules/resources/resource.model'
-import { Course } from '../../modules/courses/course.model'
 import { Purchase } from '../../modules/purchases/purchase.model'
 
 describe('Admin Flow - Integration Tests', () => {

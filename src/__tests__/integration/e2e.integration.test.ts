@@ -11,7 +11,6 @@ import {
   generateTestEmail,
   authenticatedRequest,
 } from './testHelpers'
-import { User } from '../../modules/auth/user.model'
 import { Resource } from '../../modules/resources/resource.model'
 import { Course } from '../../modules/courses/course.model'
 import { Service } from '../../modules/services/service.model'
@@ -21,7 +20,6 @@ describe('End-to-End User Journey - Integration Test', () => {
   let userPassword: string
   let accessToken: string
   let refreshToken: string
-  let userId: string
 
   beforeEach(async () => {
     await cleanupTestData()
@@ -50,7 +48,6 @@ describe('End-to-End User Journey - Integration Test', () => {
     expect(signupResponse.body.data.user.email).toBe(userEmail)
     accessToken = signupResponse.body.data.accessToken
     refreshToken = signupResponse.body.data.refreshToken
-    userId = signupResponse.body.data.user.id
 
     // ========================================
     // STEP 2: View Profile
@@ -80,7 +77,7 @@ describe('End-to-End User Journey - Integration Test', () => {
       createdBy: adminUser.id,
     }).then((r) => r._id.toString())
 
-    const resource2Id = await Resource.create({
+    await Resource.create({
       title: 'React Hooks Guide',
       description: 'Master React hooks',
       category: 'react',

@@ -12,7 +12,6 @@ import {
   createTestCourse,
   authenticatedRequest,
 } from './testHelpers'
-import { Course } from '../../modules/courses/course.model'
 
 describe('Courses Flow - Integration Tests', () => {
   let adminUser: { accessToken: string; id: string }

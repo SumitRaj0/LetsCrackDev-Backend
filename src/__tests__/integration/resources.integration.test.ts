@@ -12,7 +12,6 @@ import {
   createTestResource,
   authenticatedRequest,
 } from './testHelpers'
-import { Resource } from '../../modules/resources/resource.model'
 
 describe('Resources Flow - Integration Tests', () => {
   let adminUser: { accessToken: string; id: string }

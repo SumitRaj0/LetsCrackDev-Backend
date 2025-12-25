@@ -14,8 +14,6 @@ import {
   authenticatedRequest,
 } from './testHelpers'
 import { Purchase } from '../../modules/purchases/purchase.model'
-import { Service } from '../../modules/services/service.model'
-import { Course } from '../../modules/courses/course.model'
 
 describe('Payments Flow - Integration Tests', () => {
   let regularUser: { accessToken: string; id: string; email: string }
@@ -160,7 +158,6 @@ describe('Payments Flow - Integration Tests', () => {
         .expect(200)
 
       const orderId = checkoutResponse.body.data.orderId
-      const purchaseId = checkoutResponse.body.data.purchaseId
 
       // Note: In real integration, Razorpay would provide these values
       // For testing, we'll use mock values and test the endpoint structure
