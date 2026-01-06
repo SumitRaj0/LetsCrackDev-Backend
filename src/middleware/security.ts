@@ -38,8 +38,14 @@ export const corsMiddleware = (req: Request, res: Response, next: NextFunction):
   const isDevelopment = process.env.NODE_ENV !== 'production'
   const isLocalhost = origin && (origin.includes('localhost') || origin.includes('127.0.0.1'))
 
-  // Only allow origins in the allowed list
+  // Allow all Vercel app domains (e.g., *.vercel.app)
+  const isVercelApp = origin && /^https:\/\/.*\.vercel\.app$/.test(origin)
+
+  // Only allow origins in the allowed list, or Vercel apps, or localhost in development
   if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin)
+  } else if (isVercelApp) {
+    // Allow all Vercel app domains
     res.setHeader('Access-Control-Allow-Origin', origin)
   } else if (isDevelopment && isLocalhost) {
     // In development, allow localhost for easier testing

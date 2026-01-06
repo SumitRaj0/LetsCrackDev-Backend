@@ -3,7 +3,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express'
-import { corsMiddleware } from '../../middleware/security'
+import { corsMiddleware, securityMiddleware } from '../../middleware/security'
 
 describe('Security Middleware', () => {
   let mockReq: Partial<Request>
@@ -42,9 +42,18 @@ describe('Security Middleware', () => {
 
       corsMiddleware(mockReq as Request, mockRes as Response, mockNext)
 
-      expect(mockRes.setHeader).toHaveBeenCalledWith('Access-Control-Allow-Origin', 'http://localhost:5173')
-      expect(mockRes.setHeader).toHaveBeenCalledWith('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
-      expect(mockRes.setHeader).toHaveBeenCalledWith('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+      expect(mockRes.setHeader).toHaveBeenCalledWith(
+        'Access-Control-Allow-Origin',
+        'http://localhost:5173',
+      )
+      expect(mockRes.setHeader).toHaveBeenCalledWith(
+        'Access-Control-Allow-Methods',
+        'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+      )
+      expect(mockRes.setHeader).toHaveBeenCalledWith(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Authorization',
+      )
       expect(mockRes.setHeader).toHaveBeenCalledWith('Access-Control-Allow-Credentials', 'true')
       expect(mockNext).toHaveBeenCalled()
     })
@@ -58,9 +67,12 @@ describe('Security Middleware', () => {
 
       corsMiddleware(mockReq as Request, mockRes as Response, mockNext)
 
-      expect(mockRes.setHeader).toHaveBeenCalledWith('Access-Control-Allow-Origin', 'http://localhost:3000')
+      expect(mockRes.setHeader).toHaveBeenCalledWith(
+        'Access-Control-Allow-Origin',
+        'http://localhost:3000',
+      )
       expect(mockNext).toHaveBeenCalled()
-      
+
       process.env.NODE_ENV = originalEnv
     })
 
@@ -73,8 +85,11 @@ describe('Security Middleware', () => {
 
       corsMiddleware(mockReq as Request, mockRes as Response, mockNext)
 
-      expect(mockRes.setHeader).toHaveBeenCalledWith('Access-Control-Allow-Origin', 'https://example.com')
-      
+      expect(mockRes.setHeader).toHaveBeenCalledWith(
+        'Access-Control-Allow-Origin',
+        'https://example.com',
+      )
+
       process.env.FRONTEND_URL = originalFrontendUrl
     })
 
@@ -87,8 +102,11 @@ describe('Security Middleware', () => {
 
       corsMiddleware(mockReq as Request, mockRes as Response, mockNext)
 
-      expect(mockRes.setHeader).toHaveBeenCalledWith('Access-Control-Allow-Origin', 'https://app.example.com')
-      
+      expect(mockRes.setHeader).toHaveBeenCalledWith(
+        'Access-Control-Allow-Origin',
+        'https://app.example.com',
+      )
+
       process.env.ALLOWED_ORIGINS = originalAllowedOrigins
     })
 
@@ -101,9 +119,12 @@ describe('Security Middleware', () => {
 
       corsMiddleware(mockReq as Request, mockRes as Response, mockNext)
 
-      expect(mockRes.setHeader).not.toHaveBeenCalledWith('Access-Control-Allow-Origin', 'https://malicious.com')
+      expect(mockRes.setHeader).not.toHaveBeenCalledWith(
+        'Access-Control-Allow-Origin',
+        'https://malicious.com',
+      )
       expect(mockNext).toHaveBeenCalled()
-      
+
       process.env.NODE_ENV = originalEnv
     })
 
@@ -124,9 +145,12 @@ describe('Security Middleware', () => {
 
       corsMiddleware(mockReq as Request, mockRes as Response, mockNext)
 
-      expect(mockRes.setHeader).toHaveBeenCalledWith('Access-Control-Allow-Origin', 'http://127.0.0.1:5173')
+      expect(mockRes.setHeader).toHaveBeenCalledWith(
+        'Access-Control-Allow-Origin',
+        'http://127.0.0.1:5173',
+      )
       expect(mockNext).toHaveBeenCalled()
-      
+
       process.env.NODE_ENV = originalEnv
     })
 
@@ -139,15 +163,53 @@ describe('Security Middleware', () => {
 
       corsMiddleware(mockReq as Request, mockRes as Response, mockNext)
 
-      expect(mockRes.setHeader).toHaveBeenCalledWith('Access-Control-Allow-Origin', 'https://app.example.com')
-      
+      expect(mockRes.setHeader).toHaveBeenCalledWith(
+        'Access-Control-Allow-Origin',
+        'https://app.example.com',
+      )
+
       process.env.ALLOWED_ORIGINS = originalAllowedOrigins
+    })
+
+    it('should allow Vercel app domains', () => {
+      const originalEnv = process.env.NODE_ENV
+      process.env.NODE_ENV = 'production'
+      if (mockReq.headers) {
+        mockReq.headers.origin = 'https://letscrackdev-frontend.vercel.app'
+      }
+
+      corsMiddleware(mockReq as Request, mockRes as Response, mockNext)
+
+      expect(mockRes.setHeader).toHaveBeenCalledWith(
+        'Access-Control-Allow-Origin',
+        'https://letscrackdev-frontend.vercel.app',
+      )
+      expect(mockNext).toHaveBeenCalled()
+
+      process.env.NODE_ENV = originalEnv
+    })
+
+    it('should allow any Vercel app domain pattern', () => {
+      const originalEnv = process.env.NODE_ENV
+      process.env.NODE_ENV = 'production'
+      if (mockReq.headers) {
+        mockReq.headers.origin = 'https://my-app-123.vercel.app'
+      }
+
+      corsMiddleware(mockReq as Request, mockRes as Response, mockNext)
+
+      expect(mockRes.setHeader).toHaveBeenCalledWith(
+        'Access-Control-Allow-Origin',
+        'https://my-app-123.vercel.app',
+      )
+      expect(mockNext).toHaveBeenCalled()
+
+      process.env.NODE_ENV = originalEnv
     })
   })
 
   describe('securityMiddleware', () => {
     it('should export securityMiddleware array', () => {
-      const { securityMiddleware } = require('../../middleware/security')
       expect(Array.isArray(securityMiddleware)).toBe(true)
       expect(securityMiddleware.length).toBeGreaterThan(0)
     })
