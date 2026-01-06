@@ -9,7 +9,6 @@ import { notFoundHandler } from './middleware/notFound'
 import { securityMiddleware, corsMiddleware } from './middleware/security'
 import { requestLogger } from './middleware/logger'
 import { generalLimiter } from './middleware/rateLimiter'
-import { logger } from './utils/logger'
 import routes from './routes'
 import { handleWebhook } from './modules/purchases/purchase.controller'
 
