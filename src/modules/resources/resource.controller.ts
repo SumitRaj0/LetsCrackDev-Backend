@@ -44,6 +44,7 @@ export const createResource = async (
 
     const resource = await Resource.create({
       ...result.data,
+      status: result.data.status || 'published', // Default to published if not provided
       createdBy: userId,
     })
 
@@ -86,25 +87,81 @@ export const getResources = async (
     // Build query
     const query: Record<string, unknown> = {}
 
+    // For public routes, only show published resources
+    // Admin routes can see all resources (this is handled by checking auth in admin endpoints)
+    const authUser = (req as Request & { authUser?: { role?: string } }).authUser
+    const isAdmin = authUser?.role === 'admin'
+
+    // Build conditions array for proper MongoDB query construction
+    const conditions: Record<string, unknown>[] = []
+
+    // Always filter out draft resources for non-admin users
+    if (!isAdmin) {
+      // Public users only see published resources (Active)
+      // Draft resources (Unactive) are automatically excluded by this condition
+      // Also include resources without status field (backward compatibility - treat as published)
+      conditions.push({
+        $or: [
+          { status: 'published' },
+          { status: { $exists: false } }, // Old resources without status field
+        ],
+      })
+    }
+    // Admins see all resources (no status filter)
+
+    // Add other filters
     if (category) {
-      query.category = { $regex: category, $options: 'i' }
+      conditions.push({ category: { $regex: category, $options: 'i' } })
     }
 
     if (tags) {
       const tagArray = tags.split(',').map((tag) => tag.trim())
-      query.tags = { $in: tagArray }
+      conditions.push({ tags: { $in: tagArray } })
     }
 
     if (difficulty) {
-      query.difficulty = difficulty
+      conditions.push({ difficulty })
     }
 
     if (search) {
-      query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
-        { tags: { $in: [new RegExp(search, 'i')] } },
-      ]
+      conditions.push({
+        $or: [
+          { title: { $regex: search, $options: 'i' } },
+          { description: { $regex: search, $options: 'i' } },
+          { tags: { $in: [new RegExp(search, 'i')] } },
+        ],
+      })
+    }
+
+    // Combine all conditions
+    if (conditions.length === 0) {
+      // No filters - empty query (will match all for admin, or use default status filter)
+      if (!isAdmin) {
+        query.$or = [{ status: 'published' }, { status: { $exists: false } }]
+      }
+    } else if (conditions.length === 1) {
+      // Single condition - merge directly
+      Object.assign(query, conditions[0])
+    } else {
+      // Multiple conditions - use $and
+      query.$and = conditions
+    }
+
+    // For public users, ensure we NEVER return draft resources
+    // Add explicit exclusion as a safety measure (MongoDB will combine this correctly)
+    if (!isAdmin && query.$and && Array.isArray(query.$and)) {
+      // If we have $and conditions, add draft exclusion to the $and array
+      query.$and.push({ status: { $ne: 'draft' } })
+    } else if (!isAdmin && !query.$and) {
+      // If no $and, we can add it at root level
+      // But first check if query already has status conditions
+      if (query.$or) {
+        // We have $or for status, add draft exclusion separately
+        query.status = { $ne: 'draft' }
+      } else {
+        // No status condition yet, add it
+        query.status = { $ne: 'draft' }
+      }
     }
 
     // Calculate pagination
@@ -120,6 +177,46 @@ export const getResources = async (
       .skip(skip)
       .limit(limit)
       .lean()
+
+    // CRITICAL: Verify no draft resources are returned for public users
+    if (!isAdmin) {
+      const draftResources = resources.filter((r) => {
+        const status = r.status
+        // Only check for valid status values from the type definition
+        return status === 'draft'
+      })
+      if (draftResources.length > 0) {
+        console.error(
+          '[getResources] ERROR: Draft/Unactive resources found in public response!',
+          draftResources.map((r) => ({
+            id: r._id,
+            title: r.title,
+            status: r.status,
+            rawStatus: JSON.stringify(r.status),
+          })),
+        )
+        // Filter them out as a safety measure
+        const filteredResources = resources.filter((r) => {
+          const status = r.status
+          return status === 'published' || status === undefined || status === null
+        })
+        return sendResponse(
+          res,
+          {
+            resources: filteredResources,
+            pagination: {
+              page,
+              limit,
+              total: filteredResources.length,
+              totalPages: Math.ceil(filteredResources.length / limit),
+              hasNextPage: false,
+              hasPrevPage: false,
+            },
+          },
+          'Resources retrieved successfully',
+        )
+      }
+    }
 
     const totalPages = Math.ceil(total / limit)
 
@@ -159,11 +256,40 @@ export const getResourceById = async (
       throw new ValidationError('Resource ID is required')
     }
 
-    const resource = await Resource.findById(id).populate('createdBy', 'name email')
+    // Check if user is admin
+    const authUser = (req as Request & { authUser?: { role?: string } }).authUser
+    const isAdmin = authUser?.role === 'admin'
+
+    // Build query - admins can see all, public users only see published
+    const query: Record<string, unknown> = { _id: id }
+
+    if (!isAdmin) {
+      // Public users only see published resources (Active)
+      // Explicitly exclude draft resources (Unactive)
+      query.$and = [
+        {
+          $or: [
+            { status: 'published' },
+            { status: { $exists: false } }, // Old resources without status field
+          ],
+        },
+        {
+          status: { $ne: 'draft' }, // Explicitly exclude draft
+        },
+      ]
+    }
+
+    const resource = await Resource.findOne(query).populate('createdBy', 'name email')
 
     if (!resource) {
       throw new NotFoundError('Resource not found')
     }
+
+    console.log('[getResourceById] Resource found:', {
+      title: resource.title,
+      status: resource.status,
+      isAdmin,
+    })
 
     sendResponse(
       res,
@@ -211,6 +337,9 @@ export const updateResource = async (
       throw new ValidationError(message)
     }
 
+    console.log('[updateResource] Updating resource:', { id, updateData: result.data })
+
+    // Update the resource
     const resource = await Resource.findByIdAndUpdate(id, result.data, {
       new: true,
       runValidators: true,
@@ -218,6 +347,24 @@ export const updateResource = async (
 
     if (!resource) {
       throw new NotFoundError('Resource not found')
+    }
+
+    // Verify the update was saved correctly by fetching fresh from DB
+    const verifyResource = await Resource.findById(id).lean()
+    console.log('[updateResource] Resource updated successfully:', {
+      id: resource._id,
+      title: resource.title,
+      status: resource.status,
+      verifiedStatus: verifyResource?.status,
+    })
+
+    // Double-check: if status was updated, verify it's correct
+    if (result.data.status && verifyResource?.status !== result.data.status) {
+      console.error('[updateResource] WARNING: Status mismatch!', {
+        requested: result.data.status,
+        saved: verifyResource?.status,
+        returned: resource.status,
+      })
     }
 
     sendResponse(

@@ -8,7 +8,7 @@ import {
   toggleBookmark,
   getBookmarkedResources,
 } from './resource.controller'
-import { requireAuth, requireAdmin } from '../auth/auth.middleware'
+import { requireAuth, requireAdmin, optionalAuth } from '../auth/auth.middleware'
 import { validate } from '../../middleware/validation'
 import {
   createResourceSchema,
@@ -18,9 +18,14 @@ import {
 
 const router = Router()
 
-// Public routes
-router.get('/', validate(getResourcesQuerySchema, { location: 'query' }), getResources)
-router.get('/:id', getResourceById)
+// Public routes (optionally authenticated - admins can see all, public sees only published)
+router.get(
+  '/',
+  validate(getResourcesQuerySchema, { location: 'query' }),
+  optionalAuth,
+  getResources,
+)
+router.get('/:id', optionalAuth, getResourceById)
 
 // Authenticated user routes (bookmarks)
 router.get('/bookmarks/all', requireAuth, getBookmarkedResources)

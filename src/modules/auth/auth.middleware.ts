@@ -62,4 +62,31 @@ export const requireAdmin = (req: Request, _res: Response, next: NextFunction): 
   next()
 }
 
-
+/**
+ * Optional authentication middleware
+ * Sets authUser if token is present and valid, but doesn't throw if missing
+ * Useful for public routes that need to check if user is admin
+ */
+export const optionalAuth = (req: Request, _res: Response, next: NextFunction): void => {
+  try {
+    const authHeader = req.headers.authorization
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7)
+      try {
+        const payload = jwt.verify(token, getAccessTokenSecret()) as JwtUserPayload
+        ;(req as Request & { authUser?: JwtUserPayload }).authUser = {
+          sub: payload.sub,
+          role: payload.role,
+          email: payload.email,
+        }
+      } catch {
+        // Invalid token - just continue without setting authUser
+        // This allows public access even with invalid tokens
+      }
+    }
+    next()
+  } catch {
+    // Any error - just continue without authentication
+    next()
+  }
+}

@@ -11,6 +11,10 @@ export interface ServiceDocument extends Document {
   deliverables: string[]
   availability: boolean
   createdBy: mongoose.Types.ObjectId
+  // Google Drive integration for document access
+  googleDriveFileId?: string
+  accessDuration?: number // Days of access (default: 365)
+  fileType?: 'pdf' | 'doc' | 'sheet' | 'notion' | 'link'
   deletedAt?: Date
   createdAt: Date
   updatedAt: Date
@@ -65,12 +69,27 @@ const ServiceSchema = new Schema<ServiceDocument>(
       ref: 'User',
       required: true,
     },
+    googleDriveFileId: {
+      type: String,
+      trim: true,
+    },
+    accessDuration: {
+      type: Number,
+      default: 365, // Default: 1 year access
+      min: 1,
+      max: 3650, // Max 10 years
+    },
+    fileType: {
+      type: String,
+      enum: ['pdf', 'doc', 'sheet', 'notion', 'link'],
+      default: 'pdf',
+    },
     deletedAt: {
       type: Date,
       default: null,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 )
 
 // Soft delete: Exclude deleted services from queries by default
@@ -90,4 +109,3 @@ ServiceSchema.index({ price: 1 })
 ServiceSchema.index({ createdAt: -1 })
 
 export const Service = mongoose.model<ServiceDocument>('Service', ServiceSchema)
-

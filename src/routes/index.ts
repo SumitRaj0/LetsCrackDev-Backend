@@ -15,6 +15,7 @@ import adminRoutes from '../modules/admin'
 import chatbotRoutes from '../modules/chatbot'
 import contactRoutes from '../modules/contact'
 import couponRoutes from '../modules/coupons'
+import interviewKitsRoutes from '../modules/interviewKits'
 
 const router = Router()
 
@@ -59,5 +60,8 @@ router.use('/contact', contactRoutes)
 
 // Coupon module routes (public)
 router.use('/coupons', couponRoutes)
+
+// Interview Kits module routes (requires authentication + purchase access)
+router.use('/interview-kits', interviewKitsRoutes)
 
 export default router

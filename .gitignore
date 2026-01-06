@@ -38,3 +38,10 @@ coverage/
 # TypeScript
 *.tsbuildinfo
 
+# Google Drive Credentials
+credentials/
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+

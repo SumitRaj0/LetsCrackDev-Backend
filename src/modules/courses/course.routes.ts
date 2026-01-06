@@ -9,15 +9,15 @@ import {
   getCourseEnrollment,
   updateCourseProgress,
 } from './course.controller'
-import { requireAuth, requireAdmin } from '../auth/auth.middleware'
+import { requireAuth, requireAdmin, optionalAuth } from '../auth/auth.middleware'
 import { validate } from '../../middleware/validation'
 import { createCourseSchema, updateCourseSchema, getCoursesQuerySchema } from './course.schema'
 
 const router = Router()
 
-// Public routes
-router.get('/', validate(getCoursesQuerySchema, { location: 'query' }), getCourses)
-router.get('/:id', getCourseById)
+// Public routes (optionally authenticated - admins can see all, public sees only published)
+router.get('/', validate(getCoursesQuerySchema, { location: 'query' }), optionalAuth, getCourses)
+router.get('/:id', optionalAuth, getCourseById)
 
 // Authenticated user routes (enrollment and progress)
 router.post('/:id/enroll', requireAuth, enrollInCourse)

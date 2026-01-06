@@ -136,21 +136,21 @@ describe('Resources Flow - Integration Tests', () => {
         title: 'JavaScript Basics',
         category: 'javascript',
         difficulty: 'beginner',
-        link: 'https://example.com/js-basics',
+        url: 'https://example.com/js-basics',
       })
 
       await createTestResource(adminUser.id, {
         title: 'Advanced React',
         category: 'react',
         difficulty: 'advanced',
-        link: 'https://example.com/advanced-react',
+        url: 'https://example.com/advanced-react',
       })
 
       await createTestResource(adminUser.id, {
         title: 'Node.js Intermediate',
         category: 'nodejs',
         difficulty: 'intermediate',
-        link: 'https://example.com/nodejs',
+        url: 'https://example.com/nodejs',
       })
     })
 
@@ -288,7 +288,7 @@ describe('Resources Flow - Integration Tests', () => {
           title: 'Invalid URL Resource',
           description: 'Test',
           category: 'javascript',
-          link: 'not-a-valid-url',
+          url: 'not-a-valid-url',
           difficulty: 'beginner',
         })
         .expect(400)

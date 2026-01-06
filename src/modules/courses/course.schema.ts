@@ -17,6 +17,7 @@ export const createCourseSchema = z.object({
   price: z.number().min(0),
   difficulty: z.enum(['beginner', 'intermediate', 'advanced']).optional().default('beginner'),
   category: z.string().min(2).max(100).trim(),
+  status: z.enum(['published', 'draft']).optional().default('published'),
   isPremium: z.boolean().optional().default(false),
 })
 
@@ -28,6 +29,7 @@ export const updateCourseSchema = z.object({
   price: z.number().min(0).optional(),
   difficulty: z.enum(['beginner', 'intermediate', 'advanced']).optional(),
   category: z.string().min(2).max(100).trim().optional(),
+  status: z.enum(['published', 'draft']).optional(),
   isPremium: z.boolean().optional(),
 })
 
@@ -36,7 +38,10 @@ export const getCoursesQuerySchema = z.object({
   limit: z.string().regex(/^\d+$/).transform(Number).optional().default('10'),
   category: z.string().optional(),
   difficulty: z.enum(['beginner', 'intermediate', 'advanced']).optional(),
-  isPremium: z.string().transform((val) => val === 'true').optional(),
+  isPremium: z
+    .string()
+    .transform((val) => val === 'true')
+    .optional(),
   minPrice: z.string().regex(/^\d+$/).transform(Number).optional(),
   maxPrice: z.string().regex(/^\d+$/).transform(Number).optional(),
   search: z.string().optional(),
@@ -46,4 +51,3 @@ export type CreateCourseInput = z.infer<typeof createCourseSchema>
 export type UpdateCourseInput = z.infer<typeof updateCourseSchema>
 export type GetCoursesQueryInput = z.infer<typeof getCoursesQuerySchema>
 export type LessonInput = z.infer<typeof lessonSchema>
-

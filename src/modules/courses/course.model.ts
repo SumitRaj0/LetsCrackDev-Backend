@@ -1,6 +1,7 @@
 import mongoose, { Document, Schema } from 'mongoose'
 
 export type CourseDifficulty = 'beginner' | 'intermediate' | 'advanced'
+export type CourseStatus = 'published' | 'draft'
 
 export interface Lesson {
   title: string
@@ -19,6 +20,7 @@ export interface CourseDocument extends Document {
   price: number
   difficulty: CourseDifficulty
   category: string
+  status: CourseStatus
   createdBy: mongoose.Types.ObjectId
   isPremium: boolean
   deletedAt?: Date
@@ -69,7 +71,7 @@ const LessonSchema = new Schema<Lesson>(
       min: 0,
     },
   },
-  { _id: false }
+  { _id: false },
 )
 
 const CourseSchema = new Schema<CourseDocument>(
@@ -126,6 +128,11 @@ const CourseSchema = new Schema<CourseDocument>(
       trim: true,
       maxlength: 100,
     },
+    status: {
+      type: String,
+      enum: ['published', 'draft'],
+      default: 'published',
+    },
     createdBy: {
       type: Schema.Types.ObjectId,
       ref: 'User',
@@ -140,7 +147,7 @@ const CourseSchema = new Schema<CourseDocument>(
       default: null,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 )
 
 // Soft delete: Exclude deleted courses from queries by default
@@ -161,4 +168,3 @@ CourseSchema.index({ createdAt: -1 })
 CourseSchema.index({ title: 'text', description: 'text' }) // Text search index
 
 export const Course = mongoose.model<CourseDocument>('Course', CourseSchema)
-

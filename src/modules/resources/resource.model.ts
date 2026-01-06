@@ -10,6 +10,7 @@ export interface ResourceDocument extends Document {
   link: string
   thumbnail?: string
   difficulty: ResourceDifficulty
+  status: 'published' | 'draft'
   createdBy: mongoose.Types.ObjectId
   deletedAt?: Date
   createdAt: Date
@@ -81,6 +82,11 @@ const ResourceSchema = new Schema<ResourceDocument>(
       enum: ['beginner', 'intermediate', 'advanced'],
       default: 'beginner',
     },
+    status: {
+      type: String,
+      enum: ['published', 'draft'],
+      default: 'published',
+    },
     createdBy: {
       type: Schema.Types.ObjectId,
       ref: 'User',
@@ -91,7 +97,7 @@ const ResourceSchema = new Schema<ResourceDocument>(
       default: null,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 )
 
 // Soft delete: Exclude deleted resources from queries by default
@@ -111,4 +117,3 @@ ResourceSchema.index({ title: 'text', description: 'text' }) // Text search inde
 ResourceSchema.index({ createdAt: -1 })
 
 export const Resource = mongoose.model<ResourceDocument>('Resource', ResourceSchema)
-

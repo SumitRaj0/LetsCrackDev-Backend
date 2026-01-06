@@ -182,7 +182,12 @@ describe('Admin Flow - Integration Tests', () => {
 
     test('TC-ADMIN-FLOW-008: Admin can view all resources including soft-deleted', async () => {
       // Create and delete a resource
-      const resourceId = await createTestResource(adminUser.id)
+      const resourceId = await createTestResource(adminUser.id, {
+        title: 'Test Resource',
+        category: 'javascript',
+        difficulty: 'beginner',
+        url: 'https://example.com/test',
+      })
       await authenticatedRequest(
         'delete',
         `/api/v1/resources/${resourceId}`,

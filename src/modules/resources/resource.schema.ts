@@ -8,6 +8,7 @@ export const createResourceSchema = z.object({
   link: z.string().url(),
   thumbnail: z.string().url().optional(),
   difficulty: z.enum(['beginner', 'intermediate', 'advanced']).optional().default('beginner'),
+  status: z.enum(['published', 'draft']).optional().default('published'),
 })
 
 export const updateResourceSchema = z.object({
@@ -18,6 +19,7 @@ export const updateResourceSchema = z.object({
   link: z.string().url().optional(),
   thumbnail: z.string().url().optional(),
   difficulty: z.enum(['beginner', 'intermediate', 'advanced']).optional(),
+  status: z.enum(['published', 'draft']).optional(),
 })
 
 export const getResourcesQuerySchema = z.object({
@@ -32,4 +34,3 @@ export const getResourcesQuerySchema = z.object({
 export type CreateResourceInput = z.infer<typeof createResourceSchema>
 export type UpdateResourceInput = z.infer<typeof updateResourceSchema>
 export type GetResourcesQueryInput = z.infer<typeof getResourcesQuerySchema>
-

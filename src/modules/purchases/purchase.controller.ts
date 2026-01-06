@@ -275,6 +275,44 @@ export const verifyPayment = async (
       }
     }
 
+    // Generate Google Drive access link for services
+    if (purchase.purchaseType === 'service' && purchase.serviceId) {
+      try {
+        const { Service } = await import('../services/service.model')
+        const { generateShareLink } = await import('../../utils/googleDrive')
+
+        const service = await Service.findById(purchase.serviceId)
+        if (service?.googleDriveFileId) {
+          const accessDuration = service.accessDuration || 365
+          const shareLink = await generateShareLink(service.googleDriveFileId, accessDuration)
+
+          // Calculate expiration date
+          const accessExpiresAt = new Date()
+          accessExpiresAt.setDate(accessExpiresAt.getDate() + accessDuration)
+
+          // Store access info in purchase metadata
+          purchase.metadata = {
+            ...purchase.metadata,
+            googleDriveLink: shareLink,
+            googleDriveFileId: service.googleDriveFileId,
+            accessGrantedAt: new Date().toISOString(),
+            accessExpiresAt: accessExpiresAt.toISOString(),
+            fileType: service.fileType || 'pdf',
+          }
+          await purchase.save()
+
+          logger.info('Generated Google Drive access link for purchase', {
+            purchaseId: purchase._id,
+            serviceId: service._id,
+            fileId: service.googleDriveFileId,
+          })
+        }
+      } catch (error) {
+        // Log error but don't fail the payment verification
+        logger.error('Failed to generate Google Drive access link:', error)
+      }
+    }
+
     sendResponse(
       res,
       {
@@ -394,6 +432,35 @@ export const handleWebhook = async (
               user.premiumExpiresAt = new Date()
               user.premiumExpiresAt.setFullYear(user.premiumExpiresAt.getFullYear() + 1)
               await user.save()
+            }
+          }
+
+          // Generate Google Drive access link for services (webhook)
+          if (purchase.purchaseType === 'service' && purchase.serviceId) {
+            try {
+              const { Service } = await import('../services/service.model')
+              const { generateShareLink } = await import('../../utils/googleDrive')
+
+              const service = await Service.findById(purchase.serviceId)
+              if (service?.googleDriveFileId && !purchase.metadata?.googleDriveLink) {
+                const accessDuration = service.accessDuration || 365
+                const shareLink = await generateShareLink(service.googleDriveFileId, accessDuration)
+
+                const accessExpiresAt = new Date()
+                accessExpiresAt.setDate(accessExpiresAt.getDate() + accessDuration)
+
+                purchase.metadata = {
+                  ...purchase.metadata,
+                  googleDriveLink: shareLink,
+                  googleDriveFileId: service.googleDriveFileId,
+                  accessGrantedAt: new Date().toISOString(),
+                  accessExpiresAt: accessExpiresAt.toISOString(),
+                  fileType: service.fileType || 'pdf',
+                }
+                await purchase.save()
+              }
+            } catch (error) {
+              logger.error('Failed to generate Google Drive access link in webhook:', error)
             }
           }
 
@@ -558,6 +625,91 @@ export const getPurchaseById = async (
         purchase,
       },
       'Purchase retrieved successfully',
+    )
+  } catch (error) {
+    next(error)
+  }
+}
+
+/**
+ * Get access link for a completed purchase
+ * GET /api/v1/purchases/:id/access
+ */
+export const getPurchaseAccess = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const authUser = (req as Request & { authUser?: { sub?: string } }).authUser
+    const userId = authUser?.sub
+
+    if (!userId) {
+      throw new UnauthorizedError('Not authenticated')
+    }
+
+    const { id } = req.params
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      throw new ValidationError('Invalid purchase ID')
+    }
+
+    const purchase = await Purchase.findOne({
+      _id: id,
+      user: userId,
+      status: 'completed',
+    })
+      .populate('serviceId', 'name slug googleDriveFileId fileType')
+      .populate('courseId', 'title')
+
+    if (!purchase) {
+      throw new NotFoundError('Purchase not found or not completed')
+    }
+
+    // Check if access has expired
+    if (purchase.metadata?.accessExpiresAt) {
+      const expiresAt = new Date(purchase.metadata.accessExpiresAt)
+      if (expiresAt < new Date()) {
+        throw new BadRequestError('Access has expired')
+      }
+    }
+
+    // Return access information
+    const accessInfo: {
+      hasAccess: boolean
+      accessLink?: string
+      fileType?: string
+      accessGrantedAt?: string
+      accessExpiresAt?: string
+      serviceName?: string
+      courseTitle?: string
+    } = {
+      hasAccess: purchase.status === 'completed',
+    }
+
+    if (purchase.metadata?.googleDriveLink) {
+      accessInfo.accessLink = purchase.metadata.googleDriveLink as string
+      accessInfo.fileType = (purchase.metadata.fileType as string) || 'pdf'
+      accessInfo.accessGrantedAt = purchase.metadata.accessGrantedAt as string
+      accessInfo.accessExpiresAt = purchase.metadata.accessExpiresAt as string
+    }
+
+    if (purchase.purchaseType === 'service' && purchase.serviceId) {
+      const service = purchase.serviceId as any
+      accessInfo.serviceName = service.name
+    }
+
+    if (purchase.purchaseType === 'course' && purchase.courseId) {
+      const course = purchase.courseId as any
+      accessInfo.courseTitle = course.title
+    }
+
+    sendResponse(
+      res,
+      {
+        access: accessInfo,
+      },
+      'Access information retrieved successfully',
     )
   } catch (error) {
     next(error)

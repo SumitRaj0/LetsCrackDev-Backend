@@ -17,8 +17,8 @@ export const generalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => {
-    // Completely disable rate limiting in test environment
-    if (isTestEnv) return true
+    // Completely disable rate limiting in test and development environments
+    if (isTestEnv || isDevEnv) return true
     // Skip rate limiting for webhook endpoints
     return req.path.includes('/webhook')
   },
@@ -47,8 +47,8 @@ export const apiLimiter = rateLimit({
   message: 'Too many API requests, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
-  // Disable API rate limiting in tests to avoid flakiness
-  skip: () => isTestEnv,
+  // Disable API rate limiting in tests and development to avoid flakiness
+  skip: () => isTestEnv || isDevEnv,
 })
 
 /**

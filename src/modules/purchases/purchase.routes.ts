@@ -11,6 +11,7 @@ import {
   getPurchaseStatus,
   getPurchases,
   getPurchaseById,
+  getPurchaseAccess,
 } from './purchase.controller'
 import { validate } from '../../middleware/validation'
 import { createCheckoutSchema, getPurchasesQuerySchema } from './purchase.schema'
@@ -50,5 +51,10 @@ router.get('/', requireAuth, validate(getPurchasesQuerySchema, { location: 'quer
  */
 router.get('/:id', requireAuth, getPurchaseById)
 
-export default router
+/**
+ * Get access link for a purchase (Protected)
+ * GET /api/v1/purchases/:id/access
+ */
+router.get('/:id/access', requireAuth, getPurchaseAccess)
 
+export default router

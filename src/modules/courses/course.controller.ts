@@ -83,37 +83,68 @@ export const getCourses = async (
 
     const { page, limit, category, difficulty, isPremium, minPrice, maxPrice, search } = result.data
 
+    // Check if user is admin
+    const authUser = (req as Request & { authUser?: { role?: string } }).authUser
+    const isAdmin = authUser?.role === 'admin'
+
     // Build query
     const query: Record<string, unknown> = {}
+    const conditions: Record<string, unknown>[] = []
+
+    // Always filter out draft courses for non-admin users
+    if (!isAdmin) {
+      // Public users only see published courses (Active)
+      conditions.push({
+        $or: [
+          { status: 'published' },
+          { status: { $exists: false } }, // Old courses without status field
+        ],
+      })
+    }
+    // Admins see all courses (no status filter)
 
     if (category) {
-      query.category = { $regex: category, $options: 'i' }
+      conditions.push({ category: { $regex: category, $options: 'i' } })
     }
 
     if (difficulty) {
-      query.difficulty = difficulty
+      conditions.push({ difficulty })
     }
 
     if (isPremium !== undefined) {
-      query.isPremium = isPremium
+      conditions.push({ isPremium })
     }
 
     if (minPrice !== undefined || maxPrice !== undefined) {
-      query.price = {}
+      const priceCondition: Record<string, unknown> = {}
       if (minPrice !== undefined) {
-        ;(query.price as Record<string, unknown>).$gte = minPrice
+        priceCondition.$gte = minPrice
       }
       if (maxPrice !== undefined) {
-        ;(query.price as Record<string, unknown>).$lte = maxPrice
+        priceCondition.$lte = maxPrice
       }
+      conditions.push({ price: priceCondition })
     }
 
     if (search) {
-      query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
-        { category: { $regex: search, $options: 'i' } },
-      ]
+      conditions.push({
+        $or: [
+          { title: { $regex: search, $options: 'i' } },
+          { description: { $regex: search, $options: 'i' } },
+          { category: { $regex: search, $options: 'i' } },
+        ],
+      })
+    }
+
+    // Combine all conditions
+    if (conditions.length === 0) {
+      if (!isAdmin) {
+        query.$or = [{ status: 'published' }, { status: { $exists: false } }]
+      }
+    } else if (conditions.length === 1) {
+      Object.assign(query, conditions[0])
+    } else {
+      query.$and = conditions
     }
 
     // Calculate pagination
@@ -129,6 +160,52 @@ export const getCourses = async (
       .skip(skip)
       .limit(limit)
       .lean()
+
+    // Verify no draft courses are returned for public users
+    if (!isAdmin) {
+      const draftCourses = courses.filter((c) => {
+        const status = c.status
+        // Only check for valid status values from the type definition
+        return status === 'draft'
+      })
+      if (draftCourses.length > 0) {
+        console.error(
+          '[getCourses] ERROR: Draft/Unactive courses found in public response!',
+          draftCourses.map((c) => ({
+            id: c._id,
+            title: c.title,
+            status: c.status,
+            rawStatus: JSON.stringify(c.status),
+          })),
+        )
+        // Filter them out as a safety measure
+        const filteredCourses = courses.filter((c) => {
+          const status = c.status
+          return status === 'published' || status === undefined || status === null
+        })
+        console.log(
+          '[getCourses] Filtered out draft courses. Returning:',
+          filteredCourses.length,
+          'instead of',
+          courses.length,
+        )
+        return sendResponse(
+          res,
+          {
+            courses: filteredCourses,
+            pagination: {
+              page,
+              limit,
+              total: filteredCourses.length,
+              totalPages: Math.ceil(filteredCourses.length / limit),
+              hasNextPage: false,
+              hasPrevPage: false,
+            },
+          },
+          'Courses retrieved successfully',
+        )
+      }
+    }
 
     const totalPages = Math.ceil(total / limit)
 
@@ -168,7 +245,29 @@ export const getCourseById = async (
       throw new ValidationError('Course ID is required')
     }
 
-    const course = await Course.findById(id).populate('createdBy', 'name email')
+    // Check if user is admin
+    const authUser = (req as Request & { authUser?: { role?: string } }).authUser
+    const isAdmin = authUser?.role === 'admin'
+
+    // Build query - admins can see all, public users only see published
+    const query: Record<string, unknown> = { _id: id }
+
+    if (!isAdmin) {
+      // Public users only see published courses (Active)
+      query.$and = [
+        {
+          $or: [
+            { status: 'published' },
+            { status: { $exists: false } }, // Old courses without status field
+          ],
+        },
+        {
+          status: { $ne: 'draft' }, // Explicitly exclude draft
+        },
+      ]
+    }
+
+    const course = await Course.findOne(query).populate('createdBy', 'name email')
 
     if (!course) {
       throw new NotFoundError('Course not found')
@@ -220,6 +319,8 @@ export const updateCourse = async (
       throw new ValidationError(message)
     }
 
+    console.log('[updateCourse] Updating course:', { id, updateData: result.data })
+
     // Sort lessons by order if lessons are being updated
     const updates: Record<string, unknown> = { ...result.data }
     if (result.data.lessons) {
@@ -233,6 +334,24 @@ export const updateCourse = async (
 
     if (!course) {
       throw new NotFoundError('Course not found')
+    }
+
+    // Verify the update was saved correctly by fetching fresh from DB
+    const verifyCourse = await Course.findById(id).lean()
+    console.log('[updateCourse] Course updated successfully:', {
+      id: course._id,
+      title: course.title,
+      status: course.status,
+      verifiedStatus: verifyCourse?.status,
+    })
+
+    // Double-check: if status was updated, verify it's correct
+    if (result.data.status && verifyCourse?.status !== result.data.status) {
+      console.error('[updateCourse] WARNING: Status mismatch!', {
+        requested: result.data.status,
+        saved: verifyCourse?.status,
+        returned: course.status,
+      })
     }
 
     sendResponse(
