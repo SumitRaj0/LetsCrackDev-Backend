@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express'
 import type { AnyZodObject, ZodError, ZodTypeAny } from 'zod'
 import { ValidationError } from '../utils/errors'
+import { logger } from '../utils/logger'
 
 type ValidationLocation = 'body' | 'query' | 'params'
 
@@ -44,7 +45,7 @@ export const validate = (schema: ZodTypeAny, options: ValidationOptions = {}) =>
 
       // Log validation errors for debugging
       if (process.env.NODE_ENV !== 'production') {
-        console.error('Validation error:', {
+        logger.debug('Validation error', {
           path: req.path,
           body: req.body,
           issues: issues.map((i) => ({ path: i.path, message: i.message, code: i.code })),

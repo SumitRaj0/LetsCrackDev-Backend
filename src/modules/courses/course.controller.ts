@@ -10,6 +10,7 @@ import {
   ConflictError,
 } from '../../utils/errors'
 import { sendResponse } from '../../utils/response'
+import { logger } from '../../utils/logger'
 
 /**
  * Create course (Admin only)
@@ -169,8 +170,9 @@ export const getCourses = async (
         return status === 'draft'
       })
       if (draftCourses.length > 0) {
-        console.error(
+        logger.error(
           '[getCourses] ERROR: Draft/Unactive courses found in public response!',
+          undefined,
           draftCourses.map((c) => ({
             id: c._id,
             title: c.title,
@@ -183,12 +185,10 @@ export const getCourses = async (
           const status = c.status
           return status === 'published' || status === undefined || status === null
         })
-        console.log(
-          '[getCourses] Filtered out draft courses. Returning:',
-          filteredCourses.length,
-          'instead of',
-          courses.length,
-        )
+        logger.debug('[getCourses] Filtered out draft courses', {
+          filtered: filteredCourses.length,
+          original: courses.length,
+        })
         return sendResponse(
           res,
           {
@@ -319,7 +319,7 @@ export const updateCourse = async (
       throw new ValidationError(message)
     }
 
-    console.log('[updateCourse] Updating course:', { id, updateData: result.data })
+    logger.debug('[updateCourse] Updating course', { id, updateData: result.data })
 
     // Sort lessons by order if lessons are being updated
     const updates: Record<string, unknown> = { ...result.data }
@@ -338,7 +338,7 @@ export const updateCourse = async (
 
     // Verify the update was saved correctly by fetching fresh from DB
     const verifyCourse = await Course.findById(id).lean()
-    console.log('[updateCourse] Course updated successfully:', {
+    logger.debug('[updateCourse] Course updated successfully', {
       id: course._id,
       title: course.title,
       status: course.status,
@@ -347,7 +347,7 @@ export const updateCourse = async (
 
     // Double-check: if status was updated, verify it's correct
     if (result.data.status && verifyCourse?.status !== result.data.status) {
-      console.error('[updateCourse] WARNING: Status mismatch!', {
+      logger.warn('[updateCourse] WARNING: Status mismatch!', {
         requested: result.data.status,
         saved: verifyCourse?.status,
         returned: course.status,

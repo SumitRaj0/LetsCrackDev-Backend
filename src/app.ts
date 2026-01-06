@@ -52,19 +52,6 @@ app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 app.use(corsMiddleware)
 app.use(...securityMiddleware)
-
-// Debug: Log all incoming requests
-app.use((req, _res, next) => {
-  logger.info(`[REQUEST] ${req.method} ${req.url}`, {
-    method: req.method,
-    url: req.url,
-    path: req.path,
-    origin: req.headers.origin,
-    'content-type': req.headers['content-type'],
-  })
-  next()
-})
-
 app.use(requestLogger)
 
 // Root endpoint - API information

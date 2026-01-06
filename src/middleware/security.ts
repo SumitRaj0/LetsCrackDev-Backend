@@ -22,11 +22,12 @@ export const securityMiddleware = [
 
 export const corsMiddleware = (req: Request, res: Response, next: NextFunction): void => {
   const origin = req.headers.origin
-  
+
   // Get allowed origins from environment variable or use defaults
-  const envOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || []
+  const envOrigins = process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()) || []
   const allowedOrigins = [
     ...envOrigins,
+    'https://lets-crack-dev-frontend.vercel.app',
     process.env.FRONTEND_URL || 'http://localhost:5173',
     'http://localhost:5173',
     'http://localhost:3000',
@@ -57,4 +58,3 @@ export const corsMiddleware = (req: Request, res: Response, next: NextFunction):
 
   next()
 }
-

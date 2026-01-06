@@ -13,6 +13,7 @@ import {
   ForbiddenError,
 } from '../../utils/errors'
 import { sendResponse } from '../../utils/response'
+import { logger } from '../../utils/logger'
 
 /**
  * Create resource (Admin only)
@@ -186,8 +187,9 @@ export const getResources = async (
         return status === 'draft'
       })
       if (draftResources.length > 0) {
-        console.error(
+        logger.error(
           '[getResources] ERROR: Draft/Unactive resources found in public response!',
+          undefined,
           draftResources.map((r) => ({
             id: r._id,
             title: r.title,
@@ -285,7 +287,7 @@ export const getResourceById = async (
       throw new NotFoundError('Resource not found')
     }
 
-    console.log('[getResourceById] Resource found:', {
+    logger.debug('[getResourceById] Resource found', {
       title: resource.title,
       status: resource.status,
       isAdmin,
@@ -337,7 +339,7 @@ export const updateResource = async (
       throw new ValidationError(message)
     }
 
-    console.log('[updateResource] Updating resource:', { id, updateData: result.data })
+    logger.debug('[updateResource] Updating resource', { id, updateData: result.data })
 
     // Update the resource
     const resource = await Resource.findByIdAndUpdate(id, result.data, {
@@ -351,7 +353,7 @@ export const updateResource = async (
 
     // Verify the update was saved correctly by fetching fresh from DB
     const verifyResource = await Resource.findById(id).lean()
-    console.log('[updateResource] Resource updated successfully:', {
+    logger.debug('[updateResource] Resource updated successfully', {
       id: resource._id,
       title: resource.title,
       status: resource.status,
@@ -360,7 +362,7 @@ export const updateResource = async (
 
     // Double-check: if status was updated, verify it's correct
     if (result.data.status && verifyResource?.status !== result.data.status) {
-      console.error('[updateResource] WARNING: Status mismatch!', {
+      logger.warn('[updateResource] WARNING: Status mismatch!', {
         requested: result.data.status,
         saved: verifyResource?.status,
         returned: resource.status,
