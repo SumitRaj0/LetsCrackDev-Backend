@@ -35,23 +35,21 @@ export const corsMiddleware = (req: Request, res: Response, next: NextFunction):
     'http://127.0.0.1:5173',
   ]
 
-  // In development, allow localhost origins for convenience
-  const isDevelopment = process.env.NODE_ENV !== 'production'
+  // Check if origin is localhost or Vercel
   const isLocalhost = origin && (origin.includes('localhost') || origin.includes('127.0.0.1'))
-
-  // Allow all Vercel app domains (e.g., *.vercel.app)
   const isVercelApp = origin && /^https:\/\/[^/]*\.vercel\.app$/.test(origin)
 
   // Determine if origin should be allowed
+  // Allow: explicit list, Vercel domains, or localhost (for development)
   let shouldAllowOrigin = false
   if (origin) {
     if (allowedOrigins.includes(origin)) {
       shouldAllowOrigin = true
     } else if (isVercelApp) {
-      // Allow all Vercel app domains
+      // Allow all Vercel app domains (production)
       shouldAllowOrigin = true
-    } else if (isDevelopment && isLocalhost) {
-      // In development, allow localhost for easier testing
+    } else if (isLocalhost) {
+      // Always allow localhost for local development
       shouldAllowOrigin = true
     }
   }

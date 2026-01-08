@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: letscrackdev-backend
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      # Add your environment variables in Render dashboard:
+      # - MONGODB_URI
+      # - GMAIL_USER
+      # - GMAIL_APP_PASSWORD
+      # - FRONTEND_URL
+      # - ACCESS_TOKEN_SECRET
+      # - REFRESH_TOKEN_SECRET
+      # - And other required env vars
