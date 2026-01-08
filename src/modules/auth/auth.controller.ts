@@ -102,10 +102,15 @@ export const signup = async (req: Request, res: Response, next: NextFunction): P
         'Signup successful',
         201,
       )
-    } catch (createError: any) {
+    } catch (createError: unknown) {
       // Handle MongoDB duplicate key error (E11000)
       // MongoDB duplicate key errors have code 11000
-      if (createError.code === 11000) {
+      if (
+        createError &&
+        typeof createError === 'object' &&
+        'code' in createError &&
+        (createError as { code: unknown }).code === 11000
+      ) {
         throw new ConflictError('Email already in use')
       }
       throw createError
@@ -347,14 +352,13 @@ export const forgotPassword = async (
     user.passwordResetExpires = resetExpires
     await user.save()
 
-    // Build reset URL
-    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`
+    // Build reset URL (remove trailing slash if present)
+    const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '')
+    const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}`
 
     // Log reset URL in non-production environments for easier debugging
     if (process.env.NODE_ENV !== 'production') {
       logger.info('Password reset link generated', { email: user.email, resetUrl })
-      console.log('\n🔗 Password Reset Link (Development Mode):')
-      console.log(`   ${resetUrl}\n`)
     }
 
     // Send password reset email (real provider can be wired into sendEmail)
@@ -368,13 +372,22 @@ export const forgotPassword = async (
       })
       emailSent = true
       logger.info('Password reset email sent successfully', { email: user.email })
-    } catch (emailError: any) {
+    } catch (emailError: unknown) {
       // Log the error with full details
+      const errorMessage = emailError instanceof Error ? emailError.message : String(emailError)
+      const errorCode =
+        emailError && typeof emailError === 'object' && 'code' in emailError
+          ? (emailError as { code: unknown }).code
+          : undefined
+      const errorResponse =
+        emailError && typeof emailError === 'object' && 'response' in emailError
+          ? (emailError as { response: unknown }).response
+          : undefined
       logger.error('Failed to send password reset email', {
-        error: emailError.message,
+        error: errorMessage,
         email: user.email,
-        errorCode: emailError.code,
-        errorResponse: emailError.response,
+        errorCode,
+        errorResponse,
       })
 
       // In development or if email fails, return reset URL in response as fallback
@@ -382,7 +395,7 @@ export const forgotPassword = async (
       const isDevelopment = process.env.NODE_ENV !== 'production'
       if (isDevelopment || !emailSent) {
         logger.warn('Email sending failed, but reset link is available in response', {
-          error: emailError.message,
+          error: errorMessage,
           resetUrlProvided: true,
         })
         sendResponse(
@@ -391,7 +404,7 @@ export const forgotPassword = async (
             success: true,
             resetUrl: resetUrl, // Always include reset URL if email fails
             emailSent: false,
-            error: emailError.message,
+            error: errorMessage,
           },
           'Password reset link generated. Email sending failed - use the reset URL provided in the response.',
         )

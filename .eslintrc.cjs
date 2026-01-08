@@ -3,6 +3,7 @@ module.exports = {
   env: {
     node: true,
     es2022: true,
+    jest: true,
   },
   extends: [
     'eslint:recommended',
@@ -22,5 +23,14 @@ module.exports = {
     '@typescript-eslint/explicit-function-return-type': 'off',
     '@typescript-eslint/no-explicit-any': 'warn',
   },
+  overrides: [
+    {
+      files: ['**/__tests__/**/*.ts', '**/*.test.ts', '**/*.spec.ts'],
+      env: {
+        jest: true,
+        node: true,
+      },
+    },
+  ],
 }
 

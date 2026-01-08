@@ -32,6 +32,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@emailjs/nodejs": "^5.0.2",
     "@google/generative-ai": "^0.24.1",
     "bcryptjs": "^2.4.3",
     "compression": "^1.7.5",
@@ -46,6 +47,7 @@
     "morgan": "^1.10.0",
     "nodemailer": "^6.10.1",
     "razorpay": "^2.9.6",
+    "resend": "^6.6.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {

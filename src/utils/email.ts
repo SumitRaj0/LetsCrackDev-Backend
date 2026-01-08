@@ -1,5 +1,7 @@
 import { logger } from './logger'
 import nodemailer from 'nodemailer'
+import { Resend } from 'resend'
+import emailjs from '@emailjs/nodejs'
 
 export interface SendEmailOptions {
   to: string
@@ -15,22 +17,242 @@ export interface ContactEmailOptions {
   message: string
 }
 
-// Create reusable transporter
-const createTransporter = () => {
-  // Gmail SMTP configuration
+// Email provider type
+type EmailProvider = 'emailjs' | 'resend' | 'sendgrid' | 'brevo' | 'mailgun' | 'gmail' | 'smtp'
+
+/**
+ * Get the email provider from environment variables
+ * Priority: EMAILJS (if already using) > RESEND_API_KEY > SENDGRID_API_KEY > BREVO_API_KEY > MAILGUN_API_KEY > GMAIL_APP_PASSWORD > SMTP
+ */
+const getEmailProvider = (): EmailProvider => {
+  // Check EmailJS first if already configured (since user is using it)
+  if (
+    process.env.EMAILJS_SERVICE_ID &&
+    process.env.EMAILJS_TEMPLATE_ID &&
+    process.env.EMAILJS_PUBLIC_KEY
+  ) {
+    return 'emailjs'
+  }
+  if (process.env.RESEND_API_KEY) return 'resend'
+  if (process.env.SENDGRID_API_KEY) return 'sendgrid'
+  if (process.env.BREVO_API_KEY) return 'brevo'
+  if (process.env.MAILGUN_API_KEY) return 'mailgun'
+  if (process.env.GMAIL_APP_PASSWORD) return 'gmail'
+  if (process.env.SMTP_HOST) return 'smtp'
+  return 'gmail' // default fallback
+}
+
+/**
+ * Send email using EmailJS (Same service you're already using for contact form!)
+ * Free: 200 emails/month, then paid plans available
+ */
+const sendWithEmailJS = async ({ to, subject, html, text }: SendEmailOptions): Promise<void> => {
+  if (
+    !process.env.EMAILJS_SERVICE_ID ||
+    !process.env.EMAILJS_TEMPLATE_ID ||
+    !process.env.EMAILJS_PUBLIC_KEY
+  ) {
+    throw new Error(
+      'EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, and EMAILJS_PUBLIC_KEY must be configured',
+    )
+  }
+
+  // Extract reset URL from HTML or text content
+  const resetUrlMatch =
+    html?.match(/href=["'](https?:\/\/[^"']+)["']/) || text?.match(/(https?:\/\/[^\s]+)/)
+  const resetUrl = resetUrlMatch ? resetUrlMatch[1] : ''
+
+  // Extract email name from email address
+  const emailName = to.split('@')[0]
+
+  // EmailJS requires template parameters
+  // These parameter names should match your EmailJS template variables
+  const templateParams: Record<string, string> = {
+    to_email: to,
+    to_name: emailName,
+    user_email: to,
+    email: to,
+    subject: subject,
+    message: text || html?.replace(/<[^>]*>/g, '') || '', // Plain text version
+    html_message: html || text || '',
+    // Password reset specific
+    reset_url: resetUrl,
+    reset_link: resetUrl,
+    resetUrl: resetUrl,
+    // Also include common variations
+    password_reset_url: resetUrl,
+    password_reset_link: resetUrl,
+  }
+
+  await emailjs.send(
+    process.env.EMAILJS_SERVICE_ID,
+    process.env.EMAILJS_TEMPLATE_ID,
+    templateParams,
+    {
+      publicKey: process.env.EMAILJS_PUBLIC_KEY,
+    },
+  )
+}
+
+/**
+ * Send email using Resend (Recommended - Free: 3,000 emails/month)
+ */
+const sendWithResend = async ({ to, subject, html, text }: SendEmailOptions): Promise<void> => {
+  if (!process.env.RESEND_API_KEY) {
+    throw new Error('RESEND_API_KEY is not configured')
+  }
+
+  const resend = new Resend(process.env.RESEND_API_KEY)
+  const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'
+  const fromName = process.env.RESEND_FROM_NAME || 'LetsCrackDev'
+
+  await resend.emails.send({
+    from: `${fromName} <${fromEmail}>`,
+    to: [to],
+    subject,
+    html: html || text || '',
+    text: text || html || '',
+  })
+}
+
+/**
+ * Send email using SendGrid SMTP (Free: 100 emails/day)
+ */
+const sendWithSendGrid = async ({ to, subject, html, text }: SendEmailOptions): Promise<void> => {
+  if (!process.env.SENDGRID_API_KEY) {
+    throw new Error('SENDGRID_API_KEY is not configured')
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: 'smtp.sendgrid.net',
+    port: 587,
+    secure: false,
+    auth: {
+      user: 'apikey',
+      pass: process.env.SENDGRID_API_KEY,
+    },
+  })
+
+  await transporter.sendMail({
+    from: process.env.SENDGRID_FROM_EMAIL || 'noreply@letscrackdev.com',
+    to,
+    subject,
+    html: html || text,
+    text: text || html,
+  })
+}
+
+/**
+ * Send email using Brevo (formerly Sendinblue) (Free: 300 emails/day)
+ */
+const sendWithBrevo = async ({ to, subject, html, text }: SendEmailOptions): Promise<void> => {
+  if (!process.env.BREVO_API_KEY) {
+    throw new Error('BREVO_API_KEY is not configured')
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: 'smtp-relay.brevo.com',
+    port: 587,
+    secure: false,
+    auth: {
+      user: process.env.BREVO_SMTP_USER || process.env.BREVO_SMTP_LOGIN,
+      pass: process.env.BREVO_API_KEY,
+    },
+  })
+
+  await transporter.sendMail({
+    from: process.env.BREVO_FROM_EMAIL || 'noreply@letscrackdev.com',
+    to,
+    subject,
+    html: html || text,
+    text: text || html,
+  })
+}
+
+/**
+ * Send email using Mailgun (Free: 5,000 emails/month for 3 months)
+ */
+const sendWithMailgun = async ({ to, subject, html, text }: SendEmailOptions): Promise<void> => {
+  if (!process.env.MAILGUN_API_KEY || !process.env.MAILGUN_DOMAIN) {
+    throw new Error('MAILGUN_API_KEY and MAILGUN_DOMAIN must be configured')
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: `smtp.mailgun.org`,
+    port: 587,
+    secure: false,
+    auth: {
+      user: process.env.MAILGUN_SMTP_USER || `postmaster@${process.env.MAILGUN_DOMAIN}`,
+      pass: process.env.MAILGUN_API_KEY,
+    },
+  })
+
+  await transporter.sendMail({
+    from: process.env.MAILGUN_FROM_EMAIL || `noreply@${process.env.MAILGUN_DOMAIN}`,
+    to,
+    subject,
+    html: html || text,
+    text: text || html,
+  })
+}
+
+/**
+ * Send email using Gmail SMTP
+ */
+const sendWithGmail = async ({ to, subject, html, text }: SendEmailOptions): Promise<void> => {
+  if (!process.env.GMAIL_APP_PASSWORD) {
+    throw new Error('GMAIL_APP_PASSWORD is not configured')
+  }
+
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
       user: process.env.GMAIL_USER || 'letscrackdev@gmail.com',
-      pass: process.env.GMAIL_APP_PASSWORD, // Use App Password, not regular password
+      pass: process.env.GMAIL_APP_PASSWORD,
     },
   })
 
-  return transporter
+  await transporter.sendMail({
+    from: `"LetsCrackDev" <${process.env.GMAIL_USER || 'letscrackdev@gmail.com'}>`,
+    to,
+    subject,
+    html: html || text,
+    text: text || html,
+  })
 }
 
 /**
- * Send email using nodemailer
+ * Send email using custom SMTP
+ */
+const sendWithSMTP = async ({ to, subject, html, text }: SendEmailOptions): Promise<void> => {
+  if (!process.env.SMTP_HOST) {
+    throw new Error('SMTP_HOST is not configured')
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || '587'),
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: process.env.SMTP_USER
+      ? {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASSWORD || '',
+        }
+      : undefined,
+  })
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || 'noreply@letscrackdev.com',
+    to,
+    subject,
+    html: html || text,
+    text: text || html,
+  })
+}
+
+/**
+ * Send email using the configured provider
+ * Supports: Resend, SendGrid, Brevo, Mailgun, Gmail, or custom SMTP
  */
 export const sendEmail = async ({ to, subject, html, text }: SendEmailOptions): Promise<void> => {
   const env = process.env.NODE_ENV || 'development'
@@ -42,44 +264,87 @@ export const sendEmail = async ({ to, subject, html, text }: SendEmailOptions): 
     return
   }
 
-  // Check if GMAIL_APP_PASSWORD is set - if not, we can't send emails
-  if (!process.env.GMAIL_APP_PASSWORD) {
+  // Determine which email provider to use
+  const provider = getEmailProvider()
+
+  // Check if any email provider is configured
+  const hasProvider =
+    (process.env.EMAILJS_SERVICE_ID &&
+      process.env.EMAILJS_TEMPLATE_ID &&
+      process.env.EMAILJS_PUBLIC_KEY) ||
+    process.env.RESEND_API_KEY ||
+    process.env.SENDGRID_API_KEY ||
+    process.env.BREVO_API_KEY ||
+    process.env.MAILGUN_API_KEY ||
+    process.env.GMAIL_APP_PASSWORD ||
+    process.env.SMTP_HOST
+
+  if (!hasProvider) {
+    const errorMsg =
+      'No email provider configured. Please set one of: EMAILJS (EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, EMAILJS_PUBLIC_KEY), RESEND_API_KEY, SENDGRID_API_KEY, BREVO_API_KEY, MAILGUN_API_KEY, GMAIL_APP_PASSWORD, or SMTP_HOST'
     if (env === 'development') {
-      // In development, log but don't throw error
-      logger.info('Email (mock) queued', { to, subject })
-      logger.debug('Email (mock) content', { to, subject, html, text })
-      logger.warn('Set GMAIL_APP_PASSWORD in .env to enable real email sending')
-      return
+      logger.warn(errorMsg, { to, subject })
+      logger.warn('See FREE_EMAIL_SERVICES_GUIDE.md for setup instructions')
+      logger.info('Email (mock) content', { to, subject, html, text })
     } else {
-      // In production, throw error if email password is not configured
-      const errorMsg = 'GMAIL_APP_PASSWORD is not configured. Cannot send email in production.'
       logger.error(errorMsg, { to, subject, env })
-      throw new Error(errorMsg)
     }
+    // Always throw so controller can catch and handle (e.g., return reset URL in dev)
+    throw new Error(errorMsg)
   }
 
   try {
-    const transporter = createTransporter()
+    logger.info(`Sending email via ${provider}`, { to, subject, provider })
 
-    await transporter.sendMail({
-      from: `"LetsCrackDev" <${process.env.GMAIL_USER || 'letscrackdev@gmail.com'}>`,
-      to,
-      subject,
-      html: html || text,
-      text: text || html,
-    })
+    // Send email using the selected provider
+    switch (provider) {
+      case 'emailjs':
+        await sendWithEmailJS({ to, subject, html, text })
+        break
+      case 'resend':
+        await sendWithResend({ to, subject, html, text })
+        break
+      case 'sendgrid':
+        await sendWithSendGrid({ to, subject, html, text })
+        break
+      case 'brevo':
+        await sendWithBrevo({ to, subject, html, text })
+        break
+      case 'mailgun':
+        await sendWithMailgun({ to, subject, html, text })
+        break
+      case 'gmail':
+        await sendWithGmail({ to, subject, html, text })
+        break
+      case 'smtp':
+        await sendWithSMTP({ to, subject, html, text })
+        break
+      default:
+        throw new Error(`Unknown email provider: ${provider}`)
+    }
 
-    logger.info('Email sent successfully', { to, subject })
-  } catch (error: any) {
+    logger.info('Email sent successfully', { to, subject, provider })
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    const errorCode =
+      error && typeof error === 'object' && 'code' in error
+        ? (error as { code: unknown }).code
+        : undefined
+    const errorResponse =
+      error && typeof error === 'object' && 'response' in error
+        ? (error as { response: unknown }).response
+        : undefined
+    const errorStack = error instanceof Error ? error.stack : undefined
     logger.error('Failed to send email', {
-      error: error.message,
+      error: errorMessage,
       to,
       subject,
-      errorCode: error.code,
-      errorResponse: error.response,
-      stack: error.stack,
+      provider,
+      errorCode,
+      errorResponse,
+      stack: errorStack,
     })
-    throw new Error(`Failed to send email: ${error.message}`)
+    throw new Error(`Failed to send email via ${provider}: ${errorMessage}`)
   }
 }
 

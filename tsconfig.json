@@ -19,6 +19,7 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
+    "types": ["node", "jest"],
     "paths": {
       "@/*": ["src/*"]
     }
