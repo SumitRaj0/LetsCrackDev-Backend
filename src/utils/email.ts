@@ -22,10 +22,12 @@ type EmailProvider = 'emailjs' | 'resend' | 'sendgrid' | 'brevo' | 'mailgun' | '
 
 /**
  * Get the email provider from environment variables
- * Priority: EMAILJS (if already using) > RESEND_API_KEY > SENDGRID_API_KEY > BREVO_API_KEY > MAILGUN_API_KEY > GMAIL_APP_PASSWORD > SMTP
+ * Priority: GMAIL_APP_PASSWORD (existing setup) > RESEND_API_KEY > EMAILJS > SENDGRID_API_KEY > BREVO_API_KEY > MAILGUN_API_KEY > SMTP
  */
 const getEmailProvider = (): EmailProvider => {
-  // Check EmailJS first if already configured (since user is using it)
+  // Keep Gmail as priority if configured (user's existing setup)
+  if (process.env.GMAIL_APP_PASSWORD) return 'gmail'
+  // Check EmailJS if already configured
   if (
     process.env.EMAILJS_SERVICE_ID &&
     process.env.EMAILJS_TEMPLATE_ID &&
@@ -37,7 +39,6 @@ const getEmailProvider = (): EmailProvider => {
   if (process.env.SENDGRID_API_KEY) return 'sendgrid'
   if (process.env.BREVO_API_KEY) return 'brevo'
   if (process.env.MAILGUN_API_KEY) return 'mailgun'
-  if (process.env.GMAIL_APP_PASSWORD) return 'gmail'
   if (process.env.SMTP_HOST) return 'smtp'
   return 'gmail' // default fallback
 }
@@ -196,71 +197,147 @@ const sendWithMailgun = async ({ to, subject, html, text }: SendEmailOptions): P
   })
 }
 
-// Reusable Gmail transporter with connection pooling and timeout
-let gmailTransporter: nodemailer.Transporter | null = null
+/**
+ * Send email using Gmail SMTP with retry logic
+ * Tries multiple connection strategies to work around Render's SMTP restrictions
+ */
+const sendWithGmail = async ({ to, subject, html, text }: SendEmailOptions): Promise<void> => {
+  if (!process.env.GMAIL_APP_PASSWORD) {
+    throw new Error('GMAIL_APP_PASSWORD is not configured')
+  }
 
-const getGmailTransporter = (): nodemailer.Transporter => {
-  if (!gmailTransporter) {
-    if (!process.env.GMAIL_APP_PASSWORD) {
-      throw new Error('GMAIL_APP_PASSWORD is not configured')
-    }
+  const gmailUser = process.env.GMAIL_USER || 'letscrackdev@gmail.com'
+  let lastError: Error | null = null
 
-    gmailTransporter = nodemailer.createTransport({
-      service: 'gmail',
+  // Strategy 1: Try port 465 (SMTPS) - most reliable on cloud platforms
+  try {
+    const transporter = nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true, // Use SSL/TLS
       auth: {
-        user: process.env.GMAIL_USER || 'letscrackdev@gmail.com',
+        user: gmailUser,
         pass: process.env.GMAIL_APP_PASSWORD,
       },
-      pool: true, // Use connection pooling
-      maxConnections: 5, // Maximum number of connections in pool
-      maxMessages: 100, // Maximum number of messages per connection
-      rateDelta: 1000, // Time window for rate limiting (1 second)
-      rateLimit: 14, // Maximum 14 emails per second (Gmail limit is ~15/sec)
-      // Timeout configurations
-      connectionTimeout: 10000, // 10 seconds connection timeout
-      greetingTimeout: 5000, // 5 seconds greeting timeout
-      socketTimeout: 10000, // 10 seconds socket timeout
-      // Keep connection alive
-      secure: true,
+      connectionTimeout: 20000, // 20 seconds
+      greetingTimeout: 10000, // 10 seconds
+      socketTimeout: 30000, // 30 seconds
+      // Don't use pooling on cloud (can cause stale connections)
+      pool: false,
       tls: {
-        rejectUnauthorized: false, // Accept self-signed certificates
+        rejectUnauthorized: true,
       },
+    } as nodemailer.TransportOptions)
+
+    const sendPromise = transporter.sendMail({
+      from: `"LetsCrackDev" <${gmailUser}>`,
+      to,
+      subject,
+      html: html || text,
+      text: text || html,
     })
 
-    // Verify connection on creation
-    gmailTransporter.verify((error) => {
-      if (error) {
-        logger.error('Gmail transporter verification failed', { error: error.message })
-      } else {
-        logger.info('Gmail transporter verified successfully')
-      }
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Email send timeout after 30 seconds')), 30000)
+    })
+
+    await Promise.race([sendPromise, timeoutPromise])
+    logger.info('Gmail email sent successfully via port 465', { to })
+    return
+  } catch (error: unknown) {
+    lastError = error instanceof Error ? error : new Error(String(error))
+    logger.warn('Failed to send via port 465, trying port 587', {
+      error: lastError.message,
+      to,
     })
   }
 
-  return gmailTransporter
-}
+  // Strategy 2: Try port 587 (STARTTLS) as fallback
+  try {
+    const transporter = nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port: 587,
+      secure: false, // Use STARTTLS
+      auth: {
+        user: gmailUser,
+        pass: process.env.GMAIL_APP_PASSWORD,
+      },
+      connectionTimeout: 20000,
+      greetingTimeout: 10000,
+      socketTimeout: 30000,
+      pool: false,
+      requireTLS: true,
+      tls: {
+        rejectUnauthorized: true,
+      },
+    } as nodemailer.TransportOptions)
 
-/**
- * Send email using Gmail SMTP
- */
-const sendWithGmail = async ({ to, subject, html, text }: SendEmailOptions): Promise<void> => {
-  const transporter = getGmailTransporter()
+    const sendPromise = transporter.sendMail({
+      from: `"LetsCrackDev" <${gmailUser}>`,
+      to,
+      subject,
+      html: html || text,
+      text: text || html,
+    })
 
-  // Add timeout wrapper (max 15 seconds)
-  const sendPromise = transporter.sendMail({
-    from: `"LetsCrackDev" <${process.env.GMAIL_USER || 'letscrackdev@gmail.com'}>`,
-    to,
-    subject,
-    html: html || text,
-    text: text || html,
-  })
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Email send timeout after 30 seconds')), 30000)
+    })
 
-  // Race against timeout
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error('Email send timeout after 15 seconds')), 15000)
-  })
+    await Promise.race([sendPromise, timeoutPromise])
+    logger.info('Gmail email sent successfully via port 587', { to })
+    return
+  } catch (error: unknown) {
+    lastError = error instanceof Error ? error : new Error(String(error))
+    logger.warn('Failed to send via port 587, trying service method', {
+      error: lastError.message,
+      to,
+    })
+  }
 
-  await Promise.race([sendPromise, timeoutPromise])
+  // Strategy 3: Try using 'service: gmail' as last resort
+  try {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: gmailUser,
+        pass: process.env.GMAIL_APP_PASSWORD,
+      },
+      connectionTimeout: 20000,
+      greetingTimeout: 10000,
+      socketTimeout: 30000,
+      pool: false,
+    } as nodemailer.TransportOptions)
+
+    const sendPromise = transporter.sendMail({
+      from: `"LetsCrackDev" <${gmailUser}>`,
+      to,
+      subject,
+      html: html || text,
+      text: text || html,
+    })
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Email send timeout after 30 seconds')), 30000)
+    })
+
+    await Promise.race([sendPromise, timeoutPromise])
+    logger.info('Gmail email sent successfully via service method', { to })
+    return
+  } catch (error: unknown) {
+    lastError = error instanceof Error ? error : new Error(String(error))
+    logger.error('All Gmail SMTP strategies failed', {
+      error: lastError.message,
+      to,
+    })
+  }
+
+  // If all strategies fail, throw the last error
+  throw new Error(
+    `Failed to send email via Gmail SMTP: ${lastError?.message || 'Unknown error'}. ` +
+      'This is likely due to Render blocking outbound SMTP connections. ' +
+      'Check Render logs for more details. If issues persist, consider using Resend (HTTP API) as an alternative.',
+  )
 }
 
 /**
