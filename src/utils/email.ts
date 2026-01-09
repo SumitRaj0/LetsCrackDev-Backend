@@ -332,11 +332,31 @@ const sendWithGmail = async ({ to, subject, html, text }: SendEmailOptions): Pro
     })
   }
 
+  // Strategy 4: If SMTP fails and EmailJS is configured, try EmailJS as fallback
+  // This works around Render's SMTP blocking on free tier
+  if (
+    process.env.EMAILJS_SERVICE_ID &&
+    process.env.EMAILJS_TEMPLATE_ID &&
+    process.env.EMAILJS_PUBLIC_KEY
+  ) {
+    try {
+      logger.info('Gmail SMTP failed, trying EmailJS as fallback', { to })
+      await sendWithEmailJS({ to, subject, html, text })
+      logger.info('Email sent successfully via EmailJS fallback', { to })
+      return
+    } catch (emailJSError: unknown) {
+      const emailJSErrorMsg =
+        emailJSError instanceof Error ? emailJSError.message : String(emailJSError)
+      logger.error('EmailJS fallback also failed', { error: emailJSErrorMsg, to })
+      // Continue to throw Gmail error
+    }
+  }
+
   // If all strategies fail, throw the last error
   throw new Error(
     `Failed to send email via Gmail SMTP: ${lastError?.message || 'Unknown error'}. ` +
-      'This is likely due to Render blocking outbound SMTP connections. ' +
-      'Check Render logs for more details. If issues persist, consider using Resend (HTTP API) as an alternative.',
+      'Render free tier blocks SMTP ports (465, 587) since Sept 2025. ' +
+      'Solutions: 1) Upgrade Render to paid tier, 2) Add EmailJS credentials as fallback, or 3) Use Resend (HTTP API).',
   )
 }
 
@@ -456,11 +476,17 @@ export const sendEmail = async ({ to, subject, html, text }: SendEmailOptions): 
         throw new Error(`Unknown email provider: ${provider}`)
     }
 
-    // Add overall timeout (20 seconds max)
+    // Add overall timeout - longer for Gmail since it tries multiple strategies
+    const timeoutDuration = provider === 'gmail' ? 90000 : 20000 // 90s for Gmail (3 strategies × 30s), 20s for others
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(
-        () => reject(new Error(`Email send timeout after 20 seconds (provider: ${provider})`)),
-        20000,
+        () =>
+          reject(
+            new Error(
+              `Email send timeout after ${timeoutDuration / 1000} seconds (provider: ${provider})`,
+            ),
+          ),
+        timeoutDuration,
       )
     })
 
