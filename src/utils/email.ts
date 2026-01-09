@@ -196,29 +196,71 @@ const sendWithMailgun = async ({ to, subject, html, text }: SendEmailOptions): P
   })
 }
 
+// Reusable Gmail transporter with connection pooling and timeout
+let gmailTransporter: nodemailer.Transporter | null = null
+
+const getGmailTransporter = (): nodemailer.Transporter => {
+  if (!gmailTransporter) {
+    if (!process.env.GMAIL_APP_PASSWORD) {
+      throw new Error('GMAIL_APP_PASSWORD is not configured')
+    }
+
+    gmailTransporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.GMAIL_USER || 'letscrackdev@gmail.com',
+        pass: process.env.GMAIL_APP_PASSWORD,
+      },
+      pool: true, // Use connection pooling
+      maxConnections: 5, // Maximum number of connections in pool
+      maxMessages: 100, // Maximum number of messages per connection
+      rateDelta: 1000, // Time window for rate limiting (1 second)
+      rateLimit: 14, // Maximum 14 emails per second (Gmail limit is ~15/sec)
+      // Timeout configurations
+      connectionTimeout: 10000, // 10 seconds connection timeout
+      greetingTimeout: 5000, // 5 seconds greeting timeout
+      socketTimeout: 10000, // 10 seconds socket timeout
+      // Keep connection alive
+      secure: true,
+      tls: {
+        rejectUnauthorized: false, // Accept self-signed certificates
+      },
+    })
+
+    // Verify connection on creation
+    gmailTransporter.verify((error) => {
+      if (error) {
+        logger.error('Gmail transporter verification failed', { error: error.message })
+      } else {
+        logger.info('Gmail transporter verified successfully')
+      }
+    })
+  }
+
+  return gmailTransporter
+}
+
 /**
  * Send email using Gmail SMTP
  */
 const sendWithGmail = async ({ to, subject, html, text }: SendEmailOptions): Promise<void> => {
-  if (!process.env.GMAIL_APP_PASSWORD) {
-    throw new Error('GMAIL_APP_PASSWORD is not configured')
-  }
+  const transporter = getGmailTransporter()
 
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.GMAIL_USER || 'letscrackdev@gmail.com',
-      pass: process.env.GMAIL_APP_PASSWORD,
-    },
-  })
-
-  await transporter.sendMail({
+  // Add timeout wrapper (max 15 seconds)
+  const sendPromise = transporter.sendMail({
     from: `"LetsCrackDev" <${process.env.GMAIL_USER || 'letscrackdev@gmail.com'}>`,
     to,
     subject,
     html: html || text,
     text: text || html,
   })
+
+  // Race against timeout
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error('Email send timeout after 15 seconds')), 15000)
+  })
+
+  await Promise.race([sendPromise, timeoutPromise])
 }
 
 /**
@@ -239,15 +281,26 @@ const sendWithSMTP = async ({ to, subject, html, text }: SendEmailOptions): Prom
           pass: process.env.SMTP_PASSWORD || '',
         }
       : undefined,
+    // Timeout configurations
+    connectionTimeout: 10000, // 10 seconds
+    greetingTimeout: 5000, // 5 seconds
+    socketTimeout: 10000, // 10 seconds
   })
 
-  await transporter.sendMail({
+  const sendPromise = transporter.sendMail({
     from: process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || 'noreply@letscrackdev.com',
     to,
     subject,
     html: html || text,
     text: text || html,
   })
+
+  // Race against timeout
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error('Email send timeout after 15 seconds')), 15000)
+  })
+
+  await Promise.race([sendPromise, timeoutPromise])
 }
 
 /**
@@ -296,32 +349,45 @@ export const sendEmail = async ({ to, subject, html, text }: SendEmailOptions): 
   try {
     logger.info(`Sending email via ${provider}`, { to, subject, provider })
 
+    // Create promises for email sending with timeout
+    let sendPromise: Promise<void>
+
     // Send email using the selected provider
     switch (provider) {
       case 'emailjs':
-        await sendWithEmailJS({ to, subject, html, text })
+        sendPromise = sendWithEmailJS({ to, subject, html, text })
         break
       case 'resend':
-        await sendWithResend({ to, subject, html, text })
+        sendPromise = sendWithResend({ to, subject, html, text })
         break
       case 'sendgrid':
-        await sendWithSendGrid({ to, subject, html, text })
+        sendPromise = sendWithSendGrid({ to, subject, html, text })
         break
       case 'brevo':
-        await sendWithBrevo({ to, subject, html, text })
+        sendPromise = sendWithBrevo({ to, subject, html, text })
         break
       case 'mailgun':
-        await sendWithMailgun({ to, subject, html, text })
+        sendPromise = sendWithMailgun({ to, subject, html, text })
         break
       case 'gmail':
-        await sendWithGmail({ to, subject, html, text })
+        sendPromise = sendWithGmail({ to, subject, html, text })
         break
       case 'smtp':
-        await sendWithSMTP({ to, subject, html, text })
+        sendPromise = sendWithSMTP({ to, subject, html, text })
         break
       default:
         throw new Error(`Unknown email provider: ${provider}`)
     }
+
+    // Add overall timeout (20 seconds max)
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(
+        () => reject(new Error(`Email send timeout after 20 seconds (provider: ${provider})`)),
+        20000,
+      )
+    })
+
+    await Promise.race([sendPromise, timeoutPromise])
 
     logger.info('Email sent successfully', { to, subject, provider })
   } catch (error: unknown) {
@@ -335,6 +401,8 @@ export const sendEmail = async ({ to, subject, html, text }: SendEmailOptions): 
         ? (error as { response: unknown }).response
         : undefined
     const errorStack = error instanceof Error ? error.stack : undefined
+    const isTimeout = errorMessage.toLowerCase().includes('timeout')
+
     logger.error('Failed to send email', {
       error: errorMessage,
       to,
@@ -343,7 +411,16 @@ export const sendEmail = async ({ to, subject, html, text }: SendEmailOptions): 
       errorCode,
       errorResponse,
       stack: errorStack,
+      isTimeout,
     })
+
+    // Throw with better context for timeout errors
+    if (isTimeout) {
+      throw new Error(
+        `Email sending timed out after 20 seconds. Check ${provider} configuration and network.`,
+      )
+    }
+
     throw new Error(`Failed to send email via ${provider}: ${errorMessage}`)
   }
 }

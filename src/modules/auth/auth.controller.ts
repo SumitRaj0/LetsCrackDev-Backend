@@ -361,65 +361,40 @@ export const forgotPassword = async (
       logger.info('Password reset link generated', { email: user.email, resetUrl })
     }
 
-    // Send password reset email (real provider can be wired into sendEmail)
-    let emailSent = false
-    try {
-      await sendEmail({
-        to: user.email,
-        subject: 'Password Reset Request',
-        html: `Click here to reset your password: <a href="${resetUrl}">${resetUrl}</a>`,
-        text: `Click here to reset your password: ${resetUrl}`,
-      })
-      emailSent = true
-      logger.info('Password reset email sent successfully', { email: user.email })
-    } catch (emailError: unknown) {
-      // Log the error with full details
-      const errorMessage = emailError instanceof Error ? emailError.message : String(emailError)
-      const errorCode =
-        emailError && typeof emailError === 'object' && 'code' in emailError
-          ? (emailError as { code: unknown }).code
-          : undefined
-      const errorResponse =
-        emailError && typeof emailError === 'object' && 'response' in emailError
-          ? (emailError as { response: unknown }).response
-          : undefined
-      logger.error('Failed to send password reset email', {
-        error: errorMessage,
-        email: user.email,
-        errorCode,
-        errorResponse,
-      })
-
-      // In development or if email fails, return reset URL in response as fallback
-      // This allows users to still reset their password even if email fails
-      const isDevelopment = process.env.NODE_ENV !== 'production'
-      if (isDevelopment || !emailSent) {
-        logger.warn('Email sending failed, but reset link is available in response', {
-          error: errorMessage,
-          resetUrlProvided: true,
+    // Send password reset email asynchronously (non-blocking)
+    // This allows API to respond immediately while email sends in background
+    // Fire and forget - send email in background without blocking the response
+    ;(async () => {
+      try {
+        await sendEmail({
+          to: user.email,
+          subject: 'Password Reset Request',
+          html: `Click here to reset your password: <a href="${resetUrl}">${resetUrl}</a>`,
+          text: `Click here to reset your password: ${resetUrl}`,
         })
-        sendResponse(
-          res,
-          {
-            success: true,
-            resetUrl: resetUrl, // Always include reset URL if email fails
-            emailSent: false,
-            error: errorMessage,
-          },
-          'Password reset link generated. Email sending failed - use the reset URL provided in the response.',
-        )
-        return
+        logger.info('Password reset email sent successfully', { email: user.email })
+      } catch (emailError: unknown) {
+        // Log the error but don't block response (fire and forget)
+        const errorMessage = emailError instanceof Error ? emailError.message : String(emailError)
+        const errorCode =
+          emailError && typeof emailError === 'object' && 'code' in emailError
+            ? (emailError as { code: unknown }).code
+            : undefined
+        logger.error('Failed to send password reset email (background)', {
+          error: errorMessage,
+          email: user.email,
+          errorCode,
+        })
       }
-      // In production, if email fails, still throw error but log it
-      throw emailError
-    }
+    })()
 
+    // Respond immediately - don't wait for email
     sendResponse(
       res,
       {
         success: true,
         resetUrl: process.env.NODE_ENV !== 'production' ? resetUrl : undefined,
-        emailSent: true,
+        emailSent: true, // Assume email will be sent (it's async)
       },
       'If an account with that email exists, a password reset link has been sent.',
     )

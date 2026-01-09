@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express'
 import { Course } from './course.model'
 import { User } from '../auth/user.model'
+import { Purchase } from '../purchases/purchase.model'
 import { createCourseSchema, updateCourseSchema, getCoursesQuerySchema } from './course.schema'
 import {
   ValidationError,
@@ -162,9 +163,65 @@ export const getCourses = async (
       .limit(limit)
       .lean()
 
+    // Get enrollment counts for each course (count purchases + enrollments)
+    const courseIds = courses.map((c) => c._id)
+
+    // Count completed purchases for courses
+    const purchaseCounts = await Purchase.aggregate([
+      {
+        $match: {
+          courseId: { $in: courseIds },
+          status: 'completed',
+        },
+      },
+      {
+        $group: {
+          _id: '$courseId',
+          purchaseCount: { $sum: 1 },
+        },
+      },
+    ])
+
+    // Count enrollments from User model (users who enrolled directly)
+    const enrollmentCounts = await User.aggregate([
+      {
+        $unwind: '$enrolledCourses',
+      },
+      {
+        $match: {
+          'enrolledCourses.courseId': { $in: courseIds },
+        },
+      },
+      {
+        $group: {
+          _id: '$enrolledCourses.courseId',
+          enrollmentCount: { $sum: 1 },
+        },
+      },
+    ])
+
+    // Create maps
+    const purchaseCountMap = new Map(
+      purchaseCounts.map((pc) => [pc._id.toString(), pc.purchaseCount]),
+    )
+    const enrollmentCountMap = new Map(
+      enrollmentCounts.map((ec) => [ec._id.toString(), ec.enrollmentCount]),
+    )
+
+    // Add enrolledCount to each course (combine purchases and enrollments, use the higher count)
+    const coursesWithCounts = courses.map((course) => {
+      const purchaseCount = purchaseCountMap.get(course._id.toString()) || 0
+      const enrollmentCount = enrollmentCountMap.get(course._id.toString()) || 0
+      // Use the maximum of both counts (some users may have both)
+      return {
+        ...course,
+        enrolledCount: Math.max(purchaseCount, enrollmentCount),
+      }
+    })
+
     // Verify no draft courses are returned for public users
     if (!isAdmin) {
-      const draftCourses = courses.filter((c) => {
+      const draftCourses = coursesWithCounts.filter((c) => {
         const status = c.status
         // Only check for valid status values from the type definition
         return status === 'draft'
@@ -181,13 +238,13 @@ export const getCourses = async (
           })),
         )
         // Filter them out as a safety measure
-        const filteredCourses = courses.filter((c) => {
+        const filteredCourses = coursesWithCounts.filter((c) => {
           const status = c.status
           return status === 'published' || status === undefined || status === null
         })
         logger.debug('[getCourses] Filtered out draft courses', {
           filtered: filteredCourses.length,
-          original: courses.length,
+          original: coursesWithCounts.length,
         })
         return sendResponse(
           res,
@@ -212,7 +269,7 @@ export const getCourses = async (
     sendResponse(
       res,
       {
-        courses,
+        courses: coursesWithCounts,
         pagination: {
           page,
           limit,
@@ -273,10 +330,30 @@ export const getCourseById = async (
       throw new NotFoundError('Course not found')
     }
 
+    // Get enrollment count for this course
+    const purchaseCount = await Purchase.countDocuments({
+      courseId: course._id,
+      status: 'completed',
+    })
+
+    // Count enrollments from User model
+    const enrollmentCount = await User.countDocuments({
+      'enrolledCourses.courseId': course._id,
+    })
+
+    // Use the maximum of both counts
+    const enrolledCount = Math.max(purchaseCount, enrollmentCount)
+
+    // Add enrolledCount to course
+    const courseWithCount = {
+      ...course.toObject(),
+      enrolledCount,
+    }
+
     sendResponse(
       res,
       {
-        course,
+        course: courseWithCount,
       },
       'Course retrieved successfully',
     )

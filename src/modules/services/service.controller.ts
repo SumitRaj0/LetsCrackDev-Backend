@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express'
 import mongoose from 'mongoose'
 import { Service } from './service.model'
+import { Purchase } from '../purchases/purchase.model'
 import { createServiceSchema, updateServiceSchema, getServicesQuerySchema } from './service.schema'
 import {
   ValidationError,
@@ -18,7 +19,7 @@ import { sendResponse } from '../../utils/response'
 export const createService = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   try {
     const authUser = (req as Request & { authUser?: { sub?: string; role?: string } }).authUser
@@ -50,10 +51,7 @@ export const createService = async (
       createdBy: userId,
     })
 
-    const populatedService = await Service.findById(service._id).populate(
-      'createdBy',
-      'name email'
-    )
+    const populatedService = await Service.findById(service._id).populate('createdBy', 'name email')
 
     sendResponse(
       res,
@@ -61,7 +59,7 @@ export const createService = async (
         service: populatedService,
       },
       'Service created successfully',
-      201
+      201,
     )
   } catch (error) {
     next(error)
@@ -75,7 +73,7 @@ export const createService = async (
 export const getServices = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   try {
     const result = getServicesQuerySchema.safeParse(req.query)
@@ -121,12 +119,38 @@ export const getServices = async (
       .limit(limit)
       .lean()
 
+    // Get purchase counts for each service (completed purchases only)
+    const serviceIds = services.map((s) => s._id)
+    const purchaseCounts = await Purchase.aggregate([
+      {
+        $match: {
+          serviceId: { $in: serviceIds },
+          status: 'completed',
+        },
+      },
+      {
+        $group: {
+          _id: '$serviceId',
+          count: { $sum: 1 },
+        },
+      },
+    ])
+
+    // Create a map of serviceId -> purchase count
+    const purchaseCountMap = new Map(purchaseCounts.map((pc) => [pc._id.toString(), pc.count]))
+
+    // Add optedCount to each service
+    const servicesWithCounts = services.map((service) => ({
+      ...service,
+      optedCount: purchaseCountMap.get(service._id.toString()) || 0,
+    }))
+
     const totalPages = Math.ceil(total / limit)
 
     sendResponse(
       res,
       {
-        services,
+        services: servicesWithCounts,
         pagination: {
           page,
           limit,
@@ -136,7 +160,7 @@ export const getServices = async (
           hasPrevPage: page > 1,
         },
       },
-      'Services retrieved successfully'
+      'Services retrieved successfully',
     )
   } catch (error) {
     next(error)
@@ -150,7 +174,7 @@ export const getServices = async (
 export const getServiceById = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   try {
     const { idOrSlug } = req.params
@@ -184,12 +208,24 @@ export const getServiceById = async (
       throw new NotFoundError('Service not found')
     }
 
+    // Get purchase count for this service (completed purchases only)
+    const purchaseCount = await Purchase.countDocuments({
+      serviceId: service._id,
+      status: 'completed',
+    })
+
+    // Add optedCount to service
+    const serviceWithCount = {
+      ...service.toObject(),
+      optedCount: purchaseCount,
+    }
+
     sendResponse(
       res,
       {
-        service,
+        service: serviceWithCount,
       },
-      'Service retrieved successfully'
+      'Service retrieved successfully',
     )
   } catch (error) {
     next(error)
@@ -203,7 +239,7 @@ export const getServiceById = async (
 export const updateService = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   try {
     const authUser = (req as Request & { authUser?: { sub?: string; role?: string } }).authUser
@@ -255,7 +291,7 @@ export const updateService = async (
       {
         service,
       },
-      'Service updated successfully'
+      'Service updated successfully',
     )
   } catch (error) {
     next(error)
@@ -269,7 +305,7 @@ export const updateService = async (
 export const deleteService = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ): Promise<void> => {
   try {
     const authUser = (req as Request & { authUser?: { sub?: string; role?: string } }).authUser
@@ -291,11 +327,7 @@ export const deleteService = async (
     }
 
     // Soft delete
-    const service = await Service.findByIdAndUpdate(
-      id,
-      { deletedAt: new Date() },
-      { new: true }
-    )
+    const service = await Service.findByIdAndUpdate(id, { deletedAt: new Date() }, { new: true })
 
     if (!service) {
       throw new NotFoundError('Service not found')
@@ -306,4 +338,3 @@ export const deleteService = async (
     next(error)
   }
 }
-
