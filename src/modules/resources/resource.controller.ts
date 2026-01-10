@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express'
+import mongoose from 'mongoose'
 import { Resource } from './resource.model'
 import { User } from '../auth/user.model'
 import {
@@ -258,6 +259,11 @@ export const getResourceById = async (
       throw new ValidationError('Resource ID is required')
     }
 
+    // Validate MongoDB ObjectId format to prevent 500 errors
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      throw new ValidationError('Invalid resource ID format')
+    }
+
     // Check if user is admin
     const authUser = (req as Request & { authUser?: { role?: string } }).authUser
     const isAdmin = authUser?.role === 'admin'
@@ -281,7 +287,23 @@ export const getResourceById = async (
       ]
     }
 
-    const resource = await Resource.findOne(query).populate('createdBy', 'name email')
+    // Use try-catch around populate to handle reference errors gracefully
+    let resource
+    try {
+      resource = await Resource.findOne(query).populate('createdBy', 'name email')
+    } catch (dbError: unknown) {
+      // Handle MongoDB errors (e.g., invalid ObjectId in populate)
+      const errorMessage = dbError instanceof Error ? dbError.message : String(dbError)
+      logger.error('[getResourceById] Database error', { error: errorMessage, id })
+
+      // Check if it's a CastError (invalid ObjectId in reference)
+      if (dbError instanceof Error && dbError.name === 'CastError') {
+        throw new ValidationError('Invalid resource reference')
+      }
+
+      // Re-throw as NotFoundError for other DB errors
+      throw new NotFoundError('Resource not found')
+    }
 
     if (!resource) {
       throw new NotFoundError('Resource not found')
