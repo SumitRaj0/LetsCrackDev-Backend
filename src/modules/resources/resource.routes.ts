@@ -2,6 +2,7 @@ import { Router } from 'express'
 import {
   createResource,
   getResources,
+  getResourceCounts,
   getResourceById,
   updateResource,
   deleteResource,
@@ -25,6 +26,7 @@ router.get(
   optionalAuth,
   getResources,
 )
+router.get('/counts', optionalAuth, getResourceCounts) // Optimized endpoint for category counts
 router.get('/:id', optionalAuth, getResourceById)
 
 // Authenticated user routes (bookmarks)

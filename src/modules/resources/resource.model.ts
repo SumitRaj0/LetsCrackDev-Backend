@@ -113,7 +113,11 @@ ResourceSchema.pre(/^find/, function (next) {
 ResourceSchema.index({ category: 1 })
 ResourceSchema.index({ tags: 1 })
 ResourceSchema.index({ difficulty: 1 })
+ResourceSchema.index({ status: 1, createdAt: -1 }) // Compound index for common query: published resources sorted by date
+ResourceSchema.index({ status: 1, category: 1, createdAt: -1 }) // Compound index for filtered queries
+ResourceSchema.index({ status: 1, difficulty: 1, createdAt: -1 }) // For difficulty filtered queries
 ResourceSchema.index({ title: 'text', description: 'text' }) // Text search index
 ResourceSchema.index({ createdAt: -1 })
+ResourceSchema.index({ deletedAt: 1 }) // Index for soft delete queries
 
 export const Resource = mongoose.model<ResourceDocument>('Resource', ResourceSchema)

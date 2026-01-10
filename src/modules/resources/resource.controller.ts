@@ -94,39 +94,39 @@ export const getResources = async (
     const authUser = (req as Request & { authUser?: { role?: string } }).authUser
     const isAdmin = authUser?.role === 'admin'
 
-    // Build conditions array for proper MongoDB query construction
-    const conditions: Record<string, unknown>[] = []
+    // Build filters efficiently
+    const filters: Record<string, unknown>[] = []
 
-    // Always filter out draft resources for non-admin users
+    // Status filter - only show published for non-admins
     if (!isAdmin) {
-      // Public users only see published resources (Active)
-      // Draft resources (Unactive) are automatically excluded by this condition
-      // Also include resources without status field (backward compatibility - treat as published)
-      conditions.push({
+      filters.push({
         $or: [
           { status: 'published' },
-          { status: { $exists: false } }, // Old resources without status field
+          { status: { $exists: false } }, // Backward compatibility
         ],
       })
+      filters.push({ status: { $ne: 'draft' } }) // Explicit exclusion
     }
-    // Admins see all resources (no status filter)
 
-    // Add other filters
+    // Category filter
     if (category) {
-      conditions.push({ category: { $regex: category, $options: 'i' } })
+      filters.push({ category: { $regex: category, $options: 'i' } })
     }
 
+    // Tags filter
     if (tags) {
       const tagArray = tags.split(',').map((tag) => tag.trim())
-      conditions.push({ tags: { $in: tagArray } })
+      filters.push({ tags: { $in: tagArray } })
     }
 
+    // Difficulty filter
     if (difficulty) {
-      conditions.push({ difficulty })
+      filters.push({ difficulty })
     }
 
+    // Search filter
     if (search) {
-      conditions.push({
+      filters.push({
         $or: [
           { title: { $regex: search, $options: 'i' } },
           { description: { $regex: search, $options: 'i' } },
@@ -135,92 +135,32 @@ export const getResources = async (
       })
     }
 
-    // Combine all conditions
-    if (conditions.length === 0) {
-      // No filters - empty query (will match all for admin, or use default status filter)
-      if (!isAdmin) {
-        query.$or = [{ status: 'published' }, { status: { $exists: false } }]
-      }
-    } else if (conditions.length === 1) {
-      // Single condition - merge directly
-      Object.assign(query, conditions[0])
-    } else {
-      // Multiple conditions - use $and
-      query.$and = conditions
-    }
-
-    // For public users, ensure we NEVER return draft resources
-    // Add explicit exclusion as a safety measure (MongoDB will combine this correctly)
-    if (!isAdmin && query.$and && Array.isArray(query.$and)) {
-      // If we have $and conditions, add draft exclusion to the $and array
-      query.$and.push({ status: { $ne: 'draft' } })
-    } else if (!isAdmin && !query.$and) {
-      // If no $and, we can add it at root level
-      // But first check if query already has status conditions
-      if (query.$or) {
-        // We have $or for status, add draft exclusion separately
-        query.status = { $ne: 'draft' }
-      } else {
-        // No status condition yet, add it
-        query.status = { $ne: 'draft' }
-      }
+    // Combine filters
+    if (filters.length > 0) {
+      query.$and = filters
+    } else if (!isAdmin) {
+      // No other filters, but still need status filter
+      query.$or = [{ status: 'published' }, { status: { $exists: false } }]
+      query.status = { $ne: 'draft' }
     }
 
     // Calculate pagination
     const skip = (page - 1) * limit
 
-    // Get total count for pagination
-    const total = await Resource.countDocuments(query)
+    // Optimize: Run count and find in parallel
+    const [total, resources] = await Promise.all([
+      Resource.countDocuments(query),
+      Resource.find(query)
+        // Don't populate createdBy in list view - not needed and slows down query
+        // Only populate in detail view where it's actually used
+        .select('-__v') // Exclude version field
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+    ])
 
-    // Get resources
-    const resources = await Resource.find(query)
-      .populate('createdBy', 'name email')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean()
-
-    // CRITICAL: Verify no draft resources are returned for public users
-    if (!isAdmin) {
-      const draftResources = resources.filter((r) => {
-        const status = r.status
-        // Only check for valid status values from the type definition
-        return status === 'draft'
-      })
-      if (draftResources.length > 0) {
-        logger.error(
-          '[getResources] ERROR: Draft/Unactive resources found in public response!',
-          undefined,
-          draftResources.map((r) => ({
-            id: r._id,
-            title: r.title,
-            status: r.status,
-            rawStatus: JSON.stringify(r.status),
-          })),
-        )
-        // Filter them out as a safety measure
-        const filteredResources = resources.filter((r) => {
-          const status = r.status
-          return status === 'published' || status === undefined || status === null
-        })
-        return sendResponse(
-          res,
-          {
-            resources: filteredResources,
-            pagination: {
-              page,
-              limit,
-              total: filteredResources.length,
-              totalPages: Math.ceil(filteredResources.length / limit),
-              hasNextPage: false,
-              hasPrevPage: false,
-            },
-          },
-          'Resources retrieved successfully',
-        )
-      }
-    }
-
+    // Query already filters drafts, no need to check again (performance optimization)
     const totalPages = Math.ceil(total / limit)
 
     sendResponse(
@@ -237,6 +177,69 @@ export const getResources = async (
         },
       },
       'Resources retrieved successfully',
+    )
+  } catch (error) {
+    next(error)
+  }
+}
+
+/**
+ * Get resource counts by category (Optimized for Home/Categories pages)
+ * GET /api/v1/resources/counts
+ */
+export const getResourceCounts = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const authUser = (req as Request & { authUser?: { role?: string } }).authUser
+    const isAdmin = authUser?.role === 'admin'
+
+    // Build match query - only published for non-admins
+    const matchConditions: Record<string, unknown>[] = [{ deletedAt: null }]
+
+    if (!isAdmin) {
+      matchConditions.push({
+        $or: [{ status: 'published' }, { status: { $exists: false } }],
+      })
+      matchConditions.push({ status: { $ne: 'draft' } })
+    }
+
+    // Use aggregation pipeline for efficient counting by category
+    const counts = await Resource.aggregate([
+      {
+        $match: {
+          $and: matchConditions,
+        },
+      },
+      {
+        $group: {
+          _id: { $toLower: '$category' }, // Normalize to lowercase for matching
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          category: '$_id',
+          count: 1,
+        },
+      },
+    ])
+
+    // Convert to object for JSON serialization
+    const countObject: Record<string, number> = {}
+    counts.forEach((item) => {
+      countObject[item.category] = item.count
+    })
+
+    sendResponse(
+      res,
+      {
+        counts: countObject,
+      },
+      'Resource counts retrieved successfully',
     )
   } catch (error) {
     next(error)
