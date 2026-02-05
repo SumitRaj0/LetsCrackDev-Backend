@@ -27,6 +27,8 @@ export const corsMiddleware = (req: Request, res: Response, next: NextFunction):
   const envOrigins = process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()) || []
   const allowedOrigins = [
     ...envOrigins,
+    'https://letscrackdev.in',
+    'https://www.letscrackdev.in',
     'https://letscrackdev.vercel.app',
     'https://lets-crack-dev-frontend.vercel.app',
     process.env.FRONTEND_URL || 'http://localhost:5173',
